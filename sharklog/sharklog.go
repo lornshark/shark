@@ -32,13 +32,13 @@ func New(name string, id string, writer *kafka.Writer) *SharkLog {
 	core := zapcore.NewTee(consoleCore, redisCore)
 	logger := zap.New(core, zap.AddCaller())
 	return &SharkLog{
-		Logger: logger,
+		Zap:    logger,
 		writer: lwriter,
 	}
 }
 
 type SharkLog struct {
-	Logger *zap.Logger
+	Zap    *zap.Logger
 	writer *logWriter
 }
 
