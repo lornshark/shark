@@ -20,12 +20,6 @@ func New(config *Config) (*redis.ClusterClient, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config required")
 	}
-	if config.Host == "" {
-		config.Host = "localhost"
-	}
-	if config.Port == 0 {
-		config.Port = 6379
-	}
 	client := redis.NewClusterClient(&redis.ClusterOptions{
 		Addrs:           []string{fmt.Sprintf("%v:%v", config.Host, config.Port)},
 		Username:        "default",

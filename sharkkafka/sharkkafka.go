@@ -28,12 +28,6 @@ func New(config *Config) (*SharkKafka, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config required")
 	}
-	if config.Host == "" {
-		config.Host = "localhost"
-	}
-	if config.Port == 0 {
-		config.Port = 9092
-	}
 	var dialer *kafka.Dialer
 	if config.User != "" && config.Password != "" {
 		mechanism, err := scram.Mechanism(scram.SHA512, config.User, config.Password)

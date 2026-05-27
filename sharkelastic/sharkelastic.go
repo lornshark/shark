@@ -20,9 +20,6 @@ func New(config *Config) (*elastic.Client, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config required")
 	}
-	if config.Host == "" {
-		config.Host = "localhost:9200"
-	}
 	httpClient := http.Client{}
 	httpClient.Transport = &http.Transport{
 		Proxy: http.ProxyFromEnvironment,

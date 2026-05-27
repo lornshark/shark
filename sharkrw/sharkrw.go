@@ -27,15 +27,6 @@ func New(logger *zap.Logger, config *Config) (*gorm.DB, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config required")
 	}
-	if config.Host == "" {
-		config.Host = "localhost"
-	}
-	if config.Port == 0 {
-		config.Port = 4566
-	}
-	if config.User == "" {
-		config.User = "root"
-	}
 	dsn := fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?sslmode=disable",
 		url.QueryEscape(config.User),

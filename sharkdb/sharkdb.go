@@ -28,15 +28,6 @@ func NewDb(logger *zap.Logger, config *Config) (*gorm.DB, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config required")
 	}
-	if config.Host == "" {
-		config.Host = "localhost"
-	}
-	if config.Port == 0 {
-		config.Port = 3306
-	}
-	if config.User == "" {
-		config.User = "root"
-	}
 	dsn := "%v:%v@tcp(%v:%v)/%v?charset=utf8mb4&parseTime=True&loc=Local"
 	dsn = fmt.Sprintf(dsn, config.User, config.Password, config.Host, config.Port, config.Database)
 	if config.Tls != "" {
