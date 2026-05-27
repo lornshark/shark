@@ -124,7 +124,7 @@ func New(config *Config) (*Client, error) {
 		}
 	}()
 	wg.Wait()
-	return nil, nil
+	return client, nil
 }
 
 func (c *Client) Consume(exchange string, queue string, key string, handler func(*amqp.Delivery)) {

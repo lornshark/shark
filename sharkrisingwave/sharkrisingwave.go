@@ -1,4 +1,4 @@
-package sharkrw
+package sharkrisingwave
 
 import (
 	"context"

@@ -1,11 +1,18 @@
 package main
 
 import (
-	"context"
 	"shark/sharkapp"
+	"shark/sharkdb"
+	"shark/sharkelastic"
 	"shark/sharkkafka"
+	"shark/sharkrabbitmq"
 	"shark/sharkredis"
+	"shark/sharkrisingwave"
 )
+
+type MyApp struct {
+	*sharkapp.App
+}
 
 func main() {
 	options := sharkapp.NewOption().
@@ -24,12 +31,40 @@ func main() {
 			Port:        6379,
 			Password:    "CEki57pxTJyYaLD",
 			ClusterHost: "",
-		})
+		}).
+		WithDb(&sharkdb.Config{
+			Host:     "192.168.191.100",
+			Port:     4000,
+			User:     "root",
+			Password: "CEki57pxTJyYaLD",
+			Database: "kgame",
+		}).
+		WithTimer(true).
+		WithElastic(&sharkelastic.Config{
+			Host:     "http://192.168.191.100:9200",
+			User:     "elastic",
+			Password: "CEki57pxTJyYaLD",
+		}).
+		WithRisingwave(&sharkrisingwave.Config{
+			Host:     "192.168.191.100",
+			Port:     4566,
+			User:     "root",
+			Password: "CEki57pxTJyYaLD",
+			Database: "kgame",
+		}).
+		WithRabbitmq(&sharkrabbitmq.Config{
+			Host:     []string{"192.168.191.100:5672", "192.168.191.100:5673"},
+			User:     "root",
+			Password: "CEki57pxTJyYaLD",
+		}).
+		WithPprof(3922).
+		WithHealthCheck(8311)
 
-	app, err := sharkapp.NewSharkApp(options)
+	mapp := &MyApp{}
+	app, err := sharkapp.New(options)
 	if err != nil {
 		panic(err)
 	}
-	app.Redis.Set(context.Background(), "test", "v", 0)
-	app.Logger.Info("SharkApp started")
+	mapp.App = app
+	mapp.Hunt()
 }
