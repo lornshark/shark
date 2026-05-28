@@ -14,7 +14,7 @@ import (
 // 3. 支持 context cancel
 func ScanKeys(ctx context.Context, client *redis.ClusterClient, pattern string) (<-chan string, <-chan error) {
 	out := make(chan string, 1024)
-	errCh := make(chan error, 1)
+	ch := make(chan error, 1)
 	var wg sync.WaitGroup
 	err := client.ForEachMaster(ctx, func(ctx context.Context, node *redis.Client) error {
 		wg.Add(1)
@@ -30,7 +30,7 @@ func ScanKeys(ctx context.Context, client *redis.ClusterClient, pattern string) 
 				keys, cur, err := node.Scan(ctx, cursor, pattern, 100).Result()
 				if err != nil {
 					select {
-					case errCh <- err:
+					case ch <- err:
 					default:
 					}
 					return
@@ -52,15 +52,15 @@ func ScanKeys(ctx context.Context, client *redis.ClusterClient, pattern string) 
 	})
 	if err != nil {
 		close(out)
-		close(errCh)
-		return out, errCh
+		close(ch)
+		return out, ch
 	}
 	go func() {
 		wg.Wait()
 		close(out)
-		close(errCh)
+		close(ch)
 	}()
-	return out, errCh
+	return out, ch
 
 }
 
