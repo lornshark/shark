@@ -188,16 +188,16 @@ func (b *Boot) Options() *sharkapp.Options {
 	if err != nil {
 		panic(err)
 	}
-	if v, ok := mvalue["pprof"].(string); ok {
+	if v, ok := mvalue["pprof"]; ok {
 		options.WithPprof(cast.ToInt(v))
 	}
-	if v, ok := mvalue["health"].(string); ok {
+	if v, ok := mvalue["health"]; ok {
 		options.WithHealth(cast.ToInt(v))
 	}
-	if v, ok := mvalue["grpc"].(string); ok {
+	if v, ok := mvalue["grpc"]; ok {
 		options.WithGrpc(cast.ToInt(v))
 	}
-	if v, ok := mvalue["http"].(string); ok {
+	if v, ok := mvalue["http"]; ok {
 		options.WithHttp(cast.ToInt(v))
 	}
 	return options

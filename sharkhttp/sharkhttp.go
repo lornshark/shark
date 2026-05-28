@@ -19,7 +19,6 @@ func New(ctx context.Context, evn string, logger *zap.Logger, port int) *gin.Eng
 	router.Use(errorMiddleware())
 	if evn == "dev" {
 		router.GET("swagger/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))
-		logger.Debug("swagger url: http://127.0.0.1" + ":" + fmt.Sprint(port) + "/swagger/index.html")
 	}
 	go router.Run(":" + fmt.Sprint(port))
 	return router

@@ -166,6 +166,9 @@ func New(options *Options) (*App, error) {
 	if options.http > 0 {
 		app.Gin = sharkhttp.New(app.Context, app.Env, app.Logger, options.http)
 		app.Logger.Info("开启http服务", zap.Int("port", options.http))
+		if options.env == "dev" {
+			app.Logger.Debug("swagger url: http://127.0.0.1" + ":" + fmt.Sprint(options.http) + "/swagger/index.html")
+		}
 	}
 	if options.pprof > 0 {
 		go app.pprof(options.pprof)
@@ -180,10 +183,6 @@ func (a *App) pprof(port int) {
 	a.Logger.Info("开启pprof服务", zap.Int("port", port))
 	a.muxServe = http.NewServeMux()
 	a.muxServe.HandleFunc("/debug/pprof/", pprof.Index)
-	a.muxServe.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	a.muxServe.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	a.muxServe.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	a.muxServe.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	err := http.ListenAndServe(fmt.Sprintf(":%v", port), a.muxServe)
 	if err != nil {
 		a.Logger.Error("pprof服务启动失败", zap.Int("port", port), zap.Error(err))
@@ -193,6 +192,7 @@ func (a *App) pprof(port int) {
 func (a *App) health_service(port int) {
 	http.HandleFunc("/health", func(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(200)
+		writer.Header().Set("Content-Type", "application/json")
 		writer.Write([]byte(`{"status": "ok"}`))
 	})
 	a.Logger.Info("开启健康检查服务", zap.Int("port", port))

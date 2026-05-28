@@ -60,6 +60,7 @@ func New(ctx context.Context, logger *zap.Logger, wg *sync.WaitGroup, config *Co
 
 func (c *Client) connect(index int, wg *sync.WaitGroup) {
 	connected := false
+	count := 0
 	for {
 		c.connLock.Lock()
 		amqpurl := "amqp://" + c.config.User + ":" + c.config.Password + "@" + c.config.Host[index]
@@ -77,7 +78,9 @@ func (c *Client) connect(index int, wg *sync.WaitGroup) {
 			}
 		}
 		c.conn = conn
-		c.logger.Info("成功连接Rabbitmq", zap.String("host", c.config.Host[index]))
+		if count > 0 {
+			c.logger.Info("重连Rabbitmq成功", zap.String("host", c.config.Host[index]))
+		}
 		connErr := make(chan *amqp.Error, 1)
 		conn.NotifyClose(connErr)
 		c.connLock.Unlock()
@@ -92,6 +95,7 @@ func (c *Client) connect(index int, wg *sync.WaitGroup) {
 		c.conn = nil
 		c.channel = nil
 		c.connLock.Unlock()
+		count++
 	}
 }
 
