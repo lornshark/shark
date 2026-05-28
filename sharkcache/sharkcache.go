@@ -17,7 +17,7 @@ type Cache[T any] struct {
 	sg      singleflight.Group
 }
 
-func NewCache[T any](seekers ...func(args ...any) (*T, error)) *Cache[T] {
+func New[T any](seekers ...func(args ...any) (*T, error)) *Cache[T] {
 	return &Cache[T]{
 		seekers: seekers,
 	}
