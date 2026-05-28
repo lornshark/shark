@@ -18,10 +18,10 @@ type MyApp struct {
 
 func main() {
 	options := sharkapp.NewOption().
-		WithProject("kgame").
-		WithName("game-test").
 		WithId("1").
 		WithEnv("dev").
+		WithProject("kgame").
+		WithName("game-test").
 		WithKafka(&sharkkafka.Config{
 			Host:     "192.168.191.100",
 			Port:     9092,

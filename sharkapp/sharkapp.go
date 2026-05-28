@@ -114,7 +114,7 @@ func New(options *Options) (*App, error) {
 		app.Elastic = elastic
 	}
 	if options.rabbitmq != nil {
-		mq, err := sharkrabbitmq.New(app.Context, app.Logger, app.Wg, options.rabbitmq)
+		mq, err := sharkrabbitmq.New(app.Context, app.Logger, app.Wg, options.rabbitmq, app.Name, app.Id)
 		if err != nil {
 			app.Logger.Error("连接rabbitmq失败", zap.Strings("host", options.rabbitmq.Host), zap.Error(err))
 			return nil, err

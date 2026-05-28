@@ -11,9 +11,9 @@ import (
 )
 
 type Config struct {
-	Host     string `json:"host"`     // 连接地址
-	User     string `json:"user"`     // 连接用户名
-	Password string `json:"password"` // 连接密码
+	Host     string `json:"host" yaml:"host" mapstructure:"host"`             // 连接地址
+	User     string `json:"user" yaml:"user" mapstructure:"user"`             // 连接用户名
+	Password string `json:"password" yaml:"password" mapstructure:"password"` // 连接密码
 }
 
 func New(ctx context.Context, config *Config) (*elastic.Client, error) {

@@ -14,13 +14,10 @@ import (
 )
 
 type Config struct {
-	Host     []string `json:"host"`     // 连接地址
-	User     string   `json:"user"`     // 连接用户名
-	Password string   `json:"password"` // 连接密码
-	Name     string   `json:"name"`     // 工程名称
-	Id       string   `json:"id"`       // 实例Id
+	Host     []string `json:"host" yaml:"host" mapstructure:"host"`             // 连接地址
+	User     string   `json:"user" yaml:"user" mapstructure:"user"`             // 连接用户名
+	Password string   `json:"password" yaml:"password" mapstructure:"password"` // 连接密码
 }
-
 type Client struct {
 	config   *Config
 	wg       *sync.WaitGroup
@@ -30,6 +27,8 @@ type Client struct {
 	connLock sync.Mutex
 	channel  []*amqp.Channel
 	publish  chan publishMsg
+	name     string
+	id       string
 }
 
 type publishMsg struct {
@@ -38,15 +37,16 @@ type publishMsg struct {
 	value    *amqp.Publishing
 }
 
-func New(ctx context.Context, logger *zap.Logger, wg *sync.WaitGroup, config *Config) (*Client, error) {
-	index := crc16.Checksum([]byte(config.Name), crc16.IBMTable)
+func New(ctx context.Context, logger *zap.Logger, wg *sync.WaitGroup, config *Config, name string, id string) (*Client, error) {
+	index := crc16.Checksum([]byte(name), crc16.IBMTable)
 	index = index % uint16(len(config.Host))
-	config.Host = []string{config.Host[index]}
 	client := &Client{
 		config: config,
 		ctx:    ctx,
 		wg:     wg,
 		logger: logger,
+		name:   name,
+		id:     id,
 	}
 	client.publish = make(chan publishMsg, 10000)
 	innerwg := &sync.WaitGroup{}
@@ -157,7 +157,7 @@ func (c *Client) Consume(exchange string, queue string, key string, handler func
 			channel.ExchangeDeclare(exchange, "topic", true, false, false, false, nil)
 			channel.QueueDeclare(queue, true, false, false, false, nil)
 			channel.QueueBind(queue, key, exchange, false, nil)
-			ch, err := channel.Consume(queue, fmt.Sprintf("%v.%v", c.config.Name, c.config.Id), false, false, false, false, nil)
+			ch, err := channel.Consume(queue, fmt.Sprintf("%v.%v", c.name, c.id), false, false, false, false, nil)
 			if err != nil {
 				c.connLock.Unlock()
 				time.Sleep(1 * time.Second)
