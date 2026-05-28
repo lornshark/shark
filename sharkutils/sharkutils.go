@@ -21,8 +21,7 @@ func RandNum(min int, max int) int {
 // RandString 生成指定长度的随机字符串
 func Md5(data []byte) string {
 	h := md5.New()
-	h.Write(data)
-	return hex.EncodeToString(h.Sum(nil))
+	return hex.EncodeToString(h.Sum(data))
 }
 
 // Recover 从 panic 中恢复，并记录日志
