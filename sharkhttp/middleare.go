@@ -6,7 +6,8 @@ import (
 	"io"
 	"net/http"
 	"runtime/debug"
-	"shark/sharkerror"
+
+	"github.com/lornshark/shark/sharkerror"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"

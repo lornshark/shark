@@ -1,15 +1,15 @@
 package main
 
 import (
-	"shark/sharkapp"
-	"shark/sharkdb"
-	"shark/sharkelastic"
-	"shark/sharkkafka"
-	"shark/sharkminio"
-	"shark/sharkmongodb"
-	"shark/sharkrabbitmq"
-	"shark/sharkredis"
-	"shark/sharkrisingwave"
+	"github.com/lornshark/shark/sharkapp"
+	"github.com/lornshark/shark/sharkdb"
+	"github.com/lornshark/shark/sharkelastic"
+	"github.com/lornshark/shark/sharkkafka"
+	"github.com/lornshark/shark/sharkminio"
+	"github.com/lornshark/shark/sharkmongodb"
+	"github.com/lornshark/shark/sharkrabbitmq"
+	"github.com/lornshark/shark/sharkredis"
+	"github.com/lornshark/shark/sharkrisingwave"
 )
 
 type MyApp struct {

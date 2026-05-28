@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"shark/sharksnowflake"
 	"strings"
 	"time"
+
+	"github.com/lornshark/shark/sharksnowflake"
 
 	"github.com/bytedance/sonic"
 	"github.com/segmentio/kafka-go"

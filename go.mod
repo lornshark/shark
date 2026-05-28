@@ -1,4 +1,4 @@
-module shark
+module github.com/lornshark/shark
 
 go 1.25.0
 
