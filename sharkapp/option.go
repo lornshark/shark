@@ -4,25 +4,30 @@ import (
 	"shark/sharkdb"
 	"shark/sharkelastic"
 	"shark/sharkkafka"
+	"shark/sharkminio"
+	"shark/sharkmongodb"
 	"shark/sharkrabbitmq"
 	"shark/sharkredis"
 	"shark/sharkrisingwave"
 )
 
 type Options struct {
-	project    string
-	name       string
 	id         string
-	env        string
-	kafka      *sharkkafka.Config
-	redis      *sharkredis.Config
 	db         *sharkdb.Config
-	elastic    *sharkelastic.Config
-	rabbitmq   *sharkrabbitmq.Config
-	risingwave *sharkrisingwave.Config
+	env        string
+	name       string
+	minio      *sharkminio.Config
 	timer      bool
 	pprof      int
+	kafka      *sharkkafka.Config
+	redis      *sharkredis.Config
+	elastic    *sharkelastic.Config
+	project    string
+	mongodb    *sharkmongodb.Config
+	rabbitmq   *sharkrabbitmq.Config
+	grpcport   int
 	checkport  int
+	risingwave *sharkrisingwave.Config
 }
 
 func NewOption() *Options {
@@ -79,6 +84,16 @@ func (s *Options) WithRisingwave(risingwave *sharkrisingwave.Config) *Options {
 	return s
 }
 
+func (s *Options) WithMongodb(mongodb *sharkmongodb.Config) *Options {
+	s.mongodb = mongodb
+	return s
+}
+
+func (s *Options) WithMinio(minio *sharkminio.Config) *Options {
+	s.minio = minio
+	return s
+}
+
 func (s *Options) WithTimer(timer bool) *Options {
 	s.timer = timer
 	return s
@@ -91,5 +106,10 @@ func (s *Options) WithPprof(port int) *Options {
 
 func (s *Options) WithHealthCheck(port int) *Options {
 	s.checkport = port
+	return s
+}
+
+func (s *Options) WithGrpc(port int) *Options {
+	s.grpcport = port
 	return s
 }

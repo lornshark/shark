@@ -1,6 +1,7 @@
 package sharkhttp
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/gin-gonic/gin"
@@ -9,7 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func New(logger *zap.Logger, port int) *gin.Engine {
+func New(ctx context.Context, logger *zap.Logger, port int) *gin.Engine {
 	gin.DisableConsoleColor()
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()

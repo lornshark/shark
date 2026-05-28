@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/bytedance/sonic"
@@ -15,24 +14,22 @@ import (
 )
 
 type Config struct {
-	Host     []string        `json:"host"`     // 连接地址
-	User     string          `json:"user"`     // 连接用户名
-	Password string          `json:"password"` // 连接密码
-	Name     string          `json:"name"`     // 工程名称
-	Id       string          `json:"id"`       // 实例Id
-	Logger   *zap.Logger     `json:"-"`        // 日志记录器
-	Wg       *sync.WaitGroup `json:"-"`        // 等待组
-	Running  *atomic.Bool    `json:"-"`        // 运行状态
+	Host     []string `json:"host"`     // 连接地址
+	User     string   `json:"user"`     // 连接用户名
+	Password string   `json:"password"` // 连接密码
+	Name     string   `json:"name"`     // 工程名称
+	Id       string   `json:"id"`       // 实例Id
 }
 
 type Client struct {
-	config     *Config
-	conn       *amqp.Connection
-	connLock   sync.Mutex
-	done       context.Context
-	doneCancel context.CancelFunc
-	channel    []*amqp.Channel
-	publish    chan publishMsg
+	config   *Config
+	wg       *sync.WaitGroup
+	ctx      context.Context
+	logger   *zap.Logger
+	conn     *amqp.Connection
+	connLock sync.Mutex
+	channel  []*amqp.Channel
+	publish  chan publishMsg
 }
 
 type publishMsg struct {
@@ -41,100 +38,103 @@ type publishMsg struct {
 	value    *amqp.Publishing
 }
 
-func (c *Client) Exit() {
-	c.doneCancel()
-}
-
-func New(config *Config) (*Client, error) {
+func New(ctx context.Context, logger *zap.Logger, wg *sync.WaitGroup, config *Config) (*Client, error) {
 	index := crc16.Checksum([]byte(config.Name), crc16.IBMTable)
 	index = index % uint16(len(config.Host))
 	config.Host = []string{config.Host[index]}
 	client := &Client{
 		config: config,
+		ctx:    ctx,
+		wg:     wg,
+		logger: logger,
 	}
-	client.done, client.doneCancel = context.WithCancel(context.Background())
 	client.publish = make(chan publishMsg, 10000)
-	wg := &sync.WaitGroup{}
+	innerwg := &sync.WaitGroup{}
+	innerwg.Add(1)
+	go client.connect(int(index), innerwg)
 	wg.Add(1)
+	go client.publis_msg()
+	innerwg.Wait()
+	return client, nil
+}
+
+func (c *Client) connect(index int, wg *sync.WaitGroup) {
 	connected := false
-	go func() {
-		for {
-			client.connLock.Lock()
-			amqpurl := "amqp://" + config.User + ":" + config.Password + "@" + config.Host[index]
-			conn, err := amqp.Dial(amqpurl)
-			if err != nil {
-				config.Logger.Error("连接Rabbitmq失败", zap.String("host", config.Host[index]), zap.Error(err))
-				client.connLock.Unlock()
-				time.Sleep(1 * time.Second)
-				continue
-			}
-			for i := 0; i < 5; i++ {
-				ch, _ := conn.Channel()
-				if ch != nil {
-					client.channel = append(client.channel, ch)
-				}
-			}
-			client.conn = conn
-			config.Logger.Info("成功连接Rabbitmq", zap.String("host", config.Host[index]))
-			connErr := make(chan *amqp.Error, 1)
-			conn.NotifyClose(connErr)
-			client.connLock.Unlock()
-			if !connected {
-				connected = true
-				wg.Done()
-			}
-			e := <-connErr
-			client.connLock.Lock()
-			config.Logger.Warn("Rabbitmq连接已关闭", zap.String("host", config.Host[index]), zap.Error(e))
-			client.conn.Close()
-			client.conn = nil
-			client.channel = nil
-			client.connLock.Unlock()
+	for {
+		c.connLock.Lock()
+		amqpurl := "amqp://" + c.config.User + ":" + c.config.Password + "@" + c.config.Host[index]
+		conn, err := amqp.Dial(amqpurl)
+		if err != nil {
+			c.logger.Error("连接Rabbitmq失败", zap.String("host", c.config.Host[index]), zap.Error(err))
+			c.connLock.Unlock()
+			time.Sleep(1 * time.Second)
+			continue
 		}
-	}()
-	config.Wg.Add(1)
-	go func() {
-		defer config.Wg.Done()
-		index := 0
-		for {
-			select {
-			case msg := <-client.publish:
-				for {
-					client.connLock.Lock()
-					if client.conn == nil || len(client.channel) == 0 {
-						client.connLock.Unlock()
-						time.Sleep(1 * time.Second)
-						continue
-					}
-					index++
-					index = index % len(client.channel)
-					channel := client.channel[index]
-					err := channel.Publish(msg.exchange, msg.key, false, false, *msg.value)
-					if err != nil {
-						client.connLock.Unlock()
-						time.Sleep(1 * time.Second)
-						continue
-					}
-					client.connLock.Unlock()
-					break
-				}
-			case <-client.done.Done():
+		for i := 0; i < 5; i++ {
+			ch, _ := conn.Channel()
+			if ch != nil {
+				c.channel = append(c.channel, ch)
+			}
+		}
+		c.conn = conn
+		c.logger.Info("成功连接Rabbitmq", zap.String("host", c.config.Host[index]))
+		connErr := make(chan *amqp.Error, 1)
+		conn.NotifyClose(connErr)
+		c.connLock.Unlock()
+		if !connected {
+			connected = true
+			wg.Done()
+		}
+		e := <-connErr
+		c.connLock.Lock()
+		c.logger.Warn("Rabbitmq连接已关闭", zap.String("host", c.config.Host[index]), zap.Error(e))
+		c.conn.Close()
+		c.conn = nil
+		c.channel = nil
+		c.connLock.Unlock()
+	}
+}
+
+func (c *Client) publis_msg() {
+	defer c.wg.Done()
+	index := 0
+	for {
+		select {
+		case msg, ok := <-c.publish:
+			if !ok {
 				return
 			}
+			for {
+				c.connLock.Lock()
+				if c.conn == nil || len(c.channel) == 0 {
+					c.connLock.Unlock()
+					time.Sleep(1 * time.Second)
+					continue
+				}
+				index++
+				index = index % len(c.channel)
+				channel := c.channel[index]
+				err := channel.Publish(msg.exchange, msg.key, false, false, *msg.value)
+				if err != nil {
+					c.connLock.Unlock()
+					time.Sleep(1 * time.Second)
+					continue
+				}
+				c.connLock.Unlock()
+				break
+			}
+		case <-c.ctx.Done():
+			return
 		}
-	}()
-	wg.Wait()
-	return client, nil
+	}
 }
 
 func (c *Client) Consume(exchange string, queue string, key string, handler func(*amqp.Delivery)) {
 	safeHandler := func(msg *amqp.Delivery) {
-		c.config.Wg.Add(1)
 		defer func() {
 			if r := recover(); r != nil {
-				c.config.Logger.Error("Rabbitmq消费者处理消息panic", zap.Any("r", r), zap.String("stack", string(debug.Stack())))
+				c.logger.Error("Rabbitmq消费者处理消息panic", zap.Any("r", r), zap.String("stack", string(debug.Stack())))
 			}
-			c.config.Wg.Done()
 		}()
 		handler(msg)
 	}
@@ -164,11 +164,17 @@ func (c *Client) Consume(exchange string, queue string, key string, handler func
 				continue
 			}
 			c.connLock.Unlock()
-			for msg := range ch {
-				if !c.config.Running.Load() {
-					break
+		loop:
+			for {
+				select {
+				case <-c.ctx.Done():
+					break loop
+				case msg, ok := <-ch:
+					if !ok {
+						break loop
+					}
+					safeHandler(&msg)
 				}
-				safeHandler(&msg)
 			}
 			channel.Close()
 		}

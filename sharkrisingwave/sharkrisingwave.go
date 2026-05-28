@@ -23,7 +23,7 @@ type Config struct {
 	Database string `json:"database"` // 连接数据库名称
 }
 
-func New(logger *zap.Logger, config *Config) (*gorm.DB, error) {
+func New(ctx context.Context, logger *zap.Logger, config *Config) (*gorm.DB, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config required")
 	}

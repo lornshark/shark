@@ -6,7 +6,6 @@ import (
 	"os"
 	"shark/sharksnowflake"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/bytedance/sonic"
@@ -16,7 +15,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-func New(name string, id string, writer *kafka.Writer) *SharkLog {
+func New(ctx context.Context, name string, id string, writer *kafka.Writer) *SharkLog {
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.EncodeTime = func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 		enc.AppendString(t.Format("2006-01-02 15:04:05.000"))
@@ -26,8 +25,16 @@ func New(name string, id string, writer *kafka.Writer) *SharkLog {
 	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
 	consoleEncoder := zapcore.NewConsoleEncoder(encoderConfig)
 	consoleCore := zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), zapcore.DebugLevel)
-	lwriter := &logWriter{}
-	lwriter.Init(writer)
+	hostName, _ := os.Hostname()
+	snowFlake := sharksnowflake.NewSnowflake()
+	lwriter := &logWriter{
+		ctx:       ctx,
+		name:      name,
+		id:        id,
+		writer:    writer,
+		hostName:  hostName,
+		snowFlake: snowFlake,
+	}
 	redisCore := zapcore.NewCore(zapcore.NewJSONEncoder(encoderConfig), zapcore.AddSync(lwriter), zapcore.DebugLevel)
 	core := zapcore.NewTee(consoleCore, redisCore)
 	logger := zap.New(core, zap.AddCaller())
@@ -42,24 +49,13 @@ type SharkLog struct {
 	writer *logWriter
 }
 
-func (s *SharkLog) Close() {
-	s.writer.running.Store(false)
-}
-
 type logWriter struct {
+	ctx       context.Context
 	writer    *kafka.Writer
 	snowFlake *sharksnowflake.Snowflake
 	hostName  string
-	running   atomic.Bool
 	name      string
 	id        string
-}
-
-func (w *logWriter) Init(writer *kafka.Writer) {
-	w.running.Store(true)
-	w.hostName, _ = os.Hostname()
-	w.snowFlake = sharksnowflake.NewSnowflake()
-	w.writer = writer
 }
 
 func (w *logWriter) Write(p []byte) (n int, err error) {
@@ -75,11 +71,13 @@ func (w *logWriter) Write(p []byte) (n int, err error) {
 		if err != nil {
 			fmt.Println("日志写入Kafka失败", err, "日志内容", string(p))
 		}
-		if !w.running.Load() {
+		select {
+		case <-w.ctx.Done():
 			s := string(p)
 			if strings.Contains(s, "****************server exit****************") {
 				w.writer.Close()
 			}
+		default:
 		}
 	}
 	return len(p), nil

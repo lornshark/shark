@@ -1,6 +1,7 @@
 package sharkkafka
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ type Config struct {
 }
 
 type SharkKafka struct {
+	ctx     context.Context
 	config  *Config
 	writers map[string]*kafka.Writer
 	lock    sync.Mutex
@@ -24,7 +26,7 @@ type SharkKafka struct {
 }
 
 // New 创建一个新的 SharkKafka 实例，并根据提供的配置进行初始化。
-func New(config *Config) (*SharkKafka, error) {
+func New(ctx context.Context, config *Config) (*SharkKafka, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config required")
 	}

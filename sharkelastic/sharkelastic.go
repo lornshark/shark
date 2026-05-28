@@ -16,7 +16,7 @@ type Config struct {
 	Password string `json:"password"` // 连接密码
 }
 
-func New(config *Config) (*elastic.Client, error) {
+func New(ctx context.Context, config *Config) (*elastic.Client, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config required")
 	}
@@ -45,7 +45,7 @@ func New(config *Config) (*elastic.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, err = es.NodesInfo().Do(context.Background())
+	_, err = es.NodesInfo().Do(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -5,6 +5,8 @@ import (
 	"shark/sharkdb"
 	"shark/sharkelastic"
 	"shark/sharkkafka"
+	"shark/sharkminio"
+	"shark/sharkmongodb"
 	"shark/sharkrabbitmq"
 	"shark/sharkredis"
 	"shark/sharkrisingwave"
@@ -58,13 +60,23 @@ func main() {
 			Password: "CEki57pxTJyYaLD",
 		}).
 		WithPprof(3922).
-		WithHealthCheck(8311)
+		WithHealthCheck(8311).
+		WithMongodb(&sharkmongodb.Config{
+			Host:     "192.168.191.100",
+			Port:     27017,
+			User:     "root",
+			Password: "CEki57pxTJyYaLD",
+		}).
+		WithMinio(&sharkminio.Config{
+			Host:     "192.168.191.100",
+			Port:     9000,
+			User:     "root",
+			Password: "CEki57pxTJyYaLD",
+		}).WithGrpc(2212)
 
-	mapp := &MyApp{}
 	app, err := sharkapp.New(options)
 	if err != nil {
 		panic(err)
 	}
-	mapp.App = app
-	mapp.Hunt()
+	app.Hunt()
 }

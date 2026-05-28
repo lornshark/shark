@@ -24,7 +24,7 @@ type Config struct {
 	Tls      string `json:"tls"`      // 连接使用的 TLS 配置，默认值为 "" 表示不使用 TLS
 }
 
-func NewDb(logger *zap.Logger, config *Config) (*gorm.DB, error) {
+func NewDb(ctx context.Context, logger *zap.Logger, config *Config) (*gorm.DB, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config required")
 	}

@@ -34,6 +34,7 @@ type connection struct {
 }
 
 type RpcServer struct {
+	ctx     context.Context
 	Server  *grpc.Server
 	logger  *zap.Logger
 	redis   *redis.ClusterClient
@@ -42,15 +43,16 @@ type RpcServer struct {
 	project string
 }
 
-func New(project string, redis *redis.ClusterClient, logger *zap.Logger, port int) *grpc.Server {
+func New(ctx context.Context, project string, redis *redis.ClusterClient, logger *zap.Logger, port int) *RpcServer {
 	s := &RpcServer{
+		ctx:    ctx,
 		Server: grpc.NewServer(),
 		logger: logger,
 		redis:  redis,
 		port:   port,
 	}
 	go s.run()
-	return s.Server
+	return s
 }
 
 func (s *RpcServer) run() {
@@ -59,7 +61,6 @@ func (s *RpcServer) run() {
 	if err != nil {
 		s.logger.Error("failed to listen", zap.Error(err))
 	}
-	s.logger.Info("grpc server start", zap.Int("port", s.port))
 	err = s.Server.Serve(listener)
 	if err != nil {
 		s.logger.Error("failed to serve", zap.Error(err))
@@ -74,7 +75,7 @@ func (s *RpcServer) updateResolver(name string) {
 	c := v.(*connection)
 	defer c.resolving.Store(false)
 	defer c.timestamp.Store(time.Now().Unix())
-	addr, err := s.redis.Get(context.Background(), s.redisGrpcHost(name)).Result()
+	addr, err := s.redis.Get(s.ctx, s.redisGrpcHost(name)).Result()
 	if err != nil {
 		return
 	}
@@ -135,13 +136,13 @@ func (s *RpcServer) GetRpcConnection(name string) (*grpc.ClientConn, error) {
 			}
 			return c.conn, nil
 		} else {
-			addr, err := s.redis.Get(context.Background(), s.redisGrpcHost(name)).Result()
+			addr, err := s.redis.Get(s.ctx, s.redisGrpcHost(name)).Result()
 			if err != nil && err != redis.Nil {
 				return nil, err
 			}
 			addr = strings.TrimSpace(addr)
 			if addr == "" {
-				s.redis.Set(context.Background(), s.redisGrpcHost(name), "[]", 0)
+				s.redis.Set(s.ctx, s.redisGrpcHost(name), "[]", 0)
 				return nil, fmt.Errorf("grpc地址未配置")
 			}
 			addrs := []string{}

@@ -1,65 +1,80 @@
 package sharkapp
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"shark/sharkdb"
 	"shark/sharkelastic"
 	"shark/sharkkafka"
 	"shark/sharklog"
+	"shark/sharkminio"
+	"shark/sharkmongodb"
 	"shark/sharkrabbitmq"
 	"shark/sharkredis"
 	"shark/sharkrisingwave"
+	"shark/sharkrpc"
 	"shark/sharktimer"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/minio/minio-go/v7"
 	"github.com/olivere/elastic/v7"
 	"github.com/redis/go-redis/v9"
 	"github.com/segmentio/kafka-go"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 )
 
 type App struct {
-	Project    string
-	Name       string
-	Id         string
-	Env        string
-	Running    *atomic.Bool
-	Wg         *sync.WaitGroup
-	Sg         *singleflight.Group
-	sharklog   *sharklog.SharkLog
+	// 生命周期
+	Wg      *sync.WaitGroup
+	Sg      *singleflight.Group
+	Context context.Context
+	// 基础信息
+	Id      string
+	Env     string
+	Name    string
+	Project string
+	// 基础组件
+	Db         *gorm.DB
+	Grpc       *sharkrpc.RpcServer
+	Minio      *minio.Client
+	Timer      *sharktimer.Timer
 	Kafka      *sharkkafka.SharkKafka
 	Redis      *redis.ClusterClient
 	Logger     *zap.Logger
-	Db         *gorm.DB
-	RisingWave *gorm.DB
-	Rabbitmq   *sharkrabbitmq.Client
 	Elastic    *elastic.Client
-	Timer      *sharktimer.Timer
-	mux        *http.ServeMux
+	Mongodb    *mongo.Client
+	Rabbitmq   *sharkrabbitmq.Client
+	RisingWave *gorm.DB
+	// 内部组件
+	cancelFunc context.CancelFunc
+	sharklog   *sharklog.SharkLog
+	muxServe   *http.ServeMux
 }
 
 func New(options *Options) (*App, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	app := &App{
-		Project: options.project,
-		Name:    options.name,
-		Id:      options.id,
-		Env:     options.env,
-		Running: &atomic.Bool{},
-		Wg:      &sync.WaitGroup{},
-		Sg:      &singleflight.Group{},
+		Context:    ctx,
+		cancelFunc: cancel,
+		Project:    options.project,
+		Name:       options.name,
+		Id:         options.id,
+		Env:        options.env,
+		Wg:         &sync.WaitGroup{},
+		Sg:         &singleflight.Group{},
 	}
-	app.Running.Store(true)
 	if options.kafka != nil {
-		kafka, err := sharkkafka.New(options.kafka)
+		kafka, err := sharkkafka.New(app.Context, options.kafka)
 		if err != nil {
 			return nil, err
 		}
@@ -69,10 +84,10 @@ func New(options *Options) (*App, error) {
 	if app.Kafka != nil {
 		kafkaWriter, _ = app.Kafka.Writer(fmt.Sprintf("%v_game_log", app.Project))
 	}
-	app.sharklog = sharklog.New(app.Name, app.Id, kafkaWriter)
+	app.sharklog = sharklog.New(app.Context, app.Name, app.Id, kafkaWriter)
 	app.Logger = app.sharklog.Zap
 	if options.redis != nil {
-		redis, err := sharkredis.New(options.redis)
+		redis, err := sharkredis.New(app.Context, options.redis)
 		if err != nil {
 			app.Logger.Error("连接redis失败", zap.String("host", options.redis.Host), zap.Int("port", options.redis.Port), zap.Error(err))
 			return nil, err
@@ -81,7 +96,7 @@ func New(options *Options) (*App, error) {
 		app.Redis = redis
 	}
 	if options.db != nil {
-		db, err := sharkdb.NewDb(app.Logger, options.db)
+		db, err := sharkdb.NewDb(app.Context, app.Logger, options.db)
 		if err != nil {
 			app.Logger.Error("连接db失败", zap.String("host", options.db.Host), zap.Int("port", options.db.Port), zap.String("database", options.db.Database), zap.Error(err))
 			return nil, err
@@ -90,7 +105,7 @@ func New(options *Options) (*App, error) {
 		app.Db = db
 	}
 	if options.elastic != nil {
-		elastic, err := sharkelastic.New(options.elastic)
+		elastic, err := sharkelastic.New(app.Context, options.elastic)
 		if err != nil {
 			app.Logger.Error("连接elastic失败", zap.String("host", options.elastic.Host), zap.Error(err))
 			return nil, err
@@ -99,10 +114,7 @@ func New(options *Options) (*App, error) {
 		app.Elastic = elastic
 	}
 	if options.rabbitmq != nil {
-		options.rabbitmq.Logger = app.Logger
-		options.rabbitmq.Wg = app.Wg
-		options.rabbitmq.Running = app.Running
-		mq, err := sharkrabbitmq.New(options.rabbitmq)
+		mq, err := sharkrabbitmq.New(app.Context, app.Logger, app.Wg, options.rabbitmq)
 		if err != nil {
 			app.Logger.Error("连接rabbitmq失败", zap.Strings("host", options.rabbitmq.Host), zap.Error(err))
 			return nil, err
@@ -111,7 +123,7 @@ func New(options *Options) (*App, error) {
 		app.Rabbitmq = mq
 	}
 	if options.risingwave != nil {
-		rw, err := sharkrisingwave.New(app.Logger, options.risingwave)
+		rw, err := sharkrisingwave.New(app.Context, app.Logger, options.risingwave)
 		if err != nil {
 			app.Logger.Error("连接risingwave失败", zap.String("host", options.risingwave.Host), zap.Int("port", options.risingwave.Port), zap.String("database", options.risingwave.Database), zap.Error(err))
 			return nil, err
@@ -119,16 +131,33 @@ func New(options *Options) (*App, error) {
 		app.Logger.Info("连接risingwave成功", zap.String("host", options.risingwave.Host), zap.Int("port", options.risingwave.Port), zap.String("database", options.risingwave.Database))
 		app.RisingWave = rw
 	}
+	if options.mongodb != nil {
+		mongodb, err := sharkmongodb.New(app.Context, options.mongodb)
+		if err != nil {
+			app.Logger.Error("连接mongodb失败", zap.String("host", options.mongodb.Host), zap.Int("port", options.mongodb.Port), zap.Error(err))
+			return nil, err
+		}
+		app.Logger.Info("连接mongodb成功", zap.String("host", options.mongodb.Host), zap.Int("port", options.mongodb.Port))
+		app.Mongodb = mongodb
+	}
+	if options.minio != nil {
+		client, err := sharkminio.New(app.Context, options.minio)
+		if err != nil {
+			app.Logger.Error("连接minio失败", zap.String("host", options.minio.Host), zap.Int("port", options.minio.Port), zap.Error(err))
+			return nil, err
+		}
+		app.Logger.Info("连接minio成功", zap.String("host", options.minio.Host), zap.Int("port", options.minio.Port))
+		app.Minio = client
+	}
 	if options.timer && app.Redis != nil {
-		app.Timer = sharktimer.NewTimer(app.Project, app.Name, app.Id, app.Redis)
+		app.Timer = sharktimer.NewTimer(app.Context, app.Project, app.Name, app.Id, app.Redis)
+	}
+	if options.grpcport > 0 && app.Redis != nil {
+		server := sharkrpc.New(app.Context, app.Project, app.Redis, app.Logger, options.grpcport)
+		app.Logger.Info("开启rpc服务", zap.Int("port", options.grpcport))
+		app.Grpc = server
 	}
 	if options.pprof > 0 {
-		app.mux = http.NewServeMux()
-		app.mux.HandleFunc("/debug/pprof/", pprof.Index)
-		app.mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-		app.mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-		app.mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-		app.mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 		go app.pprof(options.pprof)
 	}
 	if options.checkport > 0 {
@@ -139,7 +168,13 @@ func New(options *Options) (*App, error) {
 
 func (a *App) pprof(port int) {
 	a.Logger.Info("开启pprof服务", zap.Int("port", port))
-	err := http.ListenAndServe(fmt.Sprintf(":%v", port), a.mux)
+	a.muxServe = http.NewServeMux()
+	a.muxServe.HandleFunc("/debug/pprof/", pprof.Index)
+	a.muxServe.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	a.muxServe.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	a.muxServe.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	a.muxServe.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	err := http.ListenAndServe(fmt.Sprintf(":%v", port), a.muxServe)
 	if err != nil {
 		a.Logger.Error("pprof服务启动失败", zap.Int("port", port), zap.Error(err))
 	}
@@ -164,42 +199,29 @@ func (a *App) Hunt() {
 	signal.Notify(sig, syscall.SIGTERM)
 	signal.Notify(sig, syscall.SIGINT)
 	<-sig
-	a.Running.Store(false)
-	if a.Rabbitmq != nil {
-		a.Rabbitmq.Exit()
-	}
-	a.sharklog.Close()
+	a.cancelFunc()
 	time.Sleep(time.Millisecond * 500)
 	a.Wg.Wait()
 	a.Logger.Debug("****************server exit****************")
 }
 
 func (a *App) banner() {
-	fmt.Println("███████╗██╗  ██╗ █████╗ ██████╗ ██╗  ██╗")
-	fmt.Println("██╔════╝██║  ██║██╔══██╗██╔══██╗██║ ██╔╝")
-	fmt.Println("███████╗███████║███████║██████╔╝█████╔╝")
-	fmt.Println("╚════██║██╔══██║██╔══██║██╔══██╗██╔═██╗")
-	fmt.Println("███████║██║  ██║██║  ██║██║  ██╗██║  ██╗")
-	fmt.Println("╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝")
-	// fmt.Println("")
-	// fmt.Println("              _oo0oo_")
-	// fmt.Println("             o8888888o")
-	// fmt.Println("             88\" . \"88")
-	// fmt.Println("             (| -_- |)")
-	// fmt.Println("             0\\  =  /0")
-	// fmt.Println("           ___/---\\___")
-	// fmt.Println("         .' \\\\|     |// '.")
-	// fmt.Println("        / \\\\\\|||  :  |||// \\")
-	// fmt.Println("       / _||||| -:- |||||- \\")
-	// fmt.Println("      |   | \\\\\\  -  /// |   |")
-	// fmt.Println("      | \\_|  ''\\---/''  |_/ |")
-	// fmt.Println("      \\  .-\\__  '-'  ___/-. /")
-	// fmt.Println("    ___'. .'  /--.--\\  `. .'___")
-	// fmt.Println(" .\"\" '<   .___\\_<|>_/___.' > \"\".")
-	// fmt.Println("| | :  '- \\.;\\ _ /;./ - ' : | |")
-	// fmt.Println("\\  \\ _.   \\_ __\\ /__ _/   .-  /")
-	// fmt.Println("====='-.____.___ \\_____/___.-=====")
-	// fmt.Println("              =---=")
-	// fmt.Println("")
-	// fmt.Println("           佛祖保佑 永无 BUG")
+	banner := `███████╗██╗  ██╗ █████╗ ██████╗ ██╗  ██╗    ██╗  ██╗██╗   ██╗███╗   ██╗████████╗██╗███╗   ██╗ ██████╗
+██╔════╝██║  ██║██╔══██╗██╔══██╗██║ ██╔╝    ██║  ██║██║   ██║████╗  ██║╚══██╔══╝██║████╗  ██║██╔════╝
+███████╗███████║███████║██████╔╝█████╔╝     ███████║██║   ██║██╔██╗ ██║   ██║   ██║██╔██╗ ██║██║  ███╗
+╚════██║██╔══██║██╔══██║██╔══██╗██╔═██╗     ██╔══██║██║   ██║██║╚██╗██║   ██║   ██║██║╚██╗██║██║   ██║
+███████║██║  ██║██║  ██║██║  ██║██║  ██╗    ██║  ██║╚██████╔╝██║ ╚████║   ██║   ██║██║ ╚████║╚██████╔╝
+╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝    ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝ ╚═════╝`
+	fmt.Println(banner)
+}
+
+func (a *App) Go(fn func(ctx context.Context)) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				a.Logger.Error("panic in go routine", zap.Any("panic", r), zap.String("stack", string(debug.Stack())))
+			}
+		}()
+		fn(a.Context)
+	}()
 }

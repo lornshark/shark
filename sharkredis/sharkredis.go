@@ -16,7 +16,7 @@ type Config struct {
 	ClusterHost string `json:"cluster_host"` // 集群连接地址，默认值为 "" 表示不替换集群连接地址
 }
 
-func New(config *Config) (*redis.ClusterClient, error) {
+func New(ctx context.Context, config *Config) (*redis.ClusterClient, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config required")
 	}
@@ -46,7 +46,7 @@ func New(config *Config) (*redis.ClusterClient, error) {
 			return net.Dial(network, clusterAddr)
 		},
 	})
-	_, err := client.Ping(context.Background()).Result()
+	_, err := client.Ping(ctx).Result()
 	if err != nil {
 		return nil, err
 	}

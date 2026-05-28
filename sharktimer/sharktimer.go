@@ -15,6 +15,7 @@ import (
 // 轻量级,单机定时器,不重试,定时器误差1s
 
 type Timer struct {
+	ctx             context.Context
 	timerCallback   sync.Map
 	timerKey        string
 	snowFlake       *sharksnowflake.Snowflake
@@ -24,9 +25,10 @@ type Timer struct {
 }
 
 // NewTimer 创建一个新的 Timer 实例，并根据提供的配置进行初始化。
-func NewTimer(project string, name string, id string, redis *redis.ClusterClient) *Timer {
+func NewTimer(ctx context.Context, project string, name string, id string, redis *redis.ClusterClient) *Timer {
 	pool, _ := ants.NewPool(10)
 	t := &Timer{
+		ctx:           ctx,
 		redis:         redis,
 		timerCallback: sync.Map{},
 		timerKey:      fmt.Sprintf("%v:timer:%v-%v", project, project, id),
@@ -51,36 +53,42 @@ func (t *Timer) processTimer() {
 		cb()
 	}
 	for {
-		result := t.redis.ZRangeByScoreWithScores(context.Background(), t.timerKey, &redis.ZRangeBy{
-			Min:    "0",
-			Max:    fmt.Sprintf("%v", time.Now().UnixMilli()),
-			Offset: 0,
-			Count:  100,
-		}).Val()
-		if len(result) == 0 {
-			time.Sleep(time.Second)
-			continue
-		}
-		members := make([]interface{}, 0, len(result))
-		for _, v := range result {
-			members = append(members, v.Member)
-		}
-		t.redis.ZRem(context.Background(), t.timerKey, members...)
-		for _, v := range result {
-			cb, ok := t.timerCallback.LoadAndDelete(v.Member)
-			if ok {
-				if callback, ok := cb.(func()); ok {
-					t.pool.Submit(func() {
-						safeCallback(callback)
-					})
-				}
-			} else {
-				if t.defaultCallback != nil {
-					t.pool.Submit(func() {
-						safeCallback(func() {
-							t.defaultCallback(cast.ToString(v.Member))
+		select {
+		case <-t.ctx.Done():
+			t.pool.Release()
+			return
+		default:
+			result := t.redis.ZRangeByScoreWithScores(t.ctx, t.timerKey, &redis.ZRangeBy{
+				Min:    "0",
+				Max:    fmt.Sprintf("%v", time.Now().UnixMilli()),
+				Offset: 0,
+				Count:  100,
+			}).Val()
+			if len(result) == 0 {
+				time.Sleep(time.Second)
+				continue
+			}
+			members := make([]interface{}, 0, len(result))
+			for _, v := range result {
+				members = append(members, v.Member)
+			}
+			t.redis.ZRem(t.ctx, t.timerKey, members...)
+			for _, v := range result {
+				cb, ok := t.timerCallback.LoadAndDelete(v.Member)
+				if ok {
+					if callback, ok := cb.(func()); ok {
+						t.pool.Submit(func() {
+							safeCallback(callback)
 						})
-					})
+					}
+				} else {
+					if t.defaultCallback != nil {
+						t.pool.Submit(func() {
+							safeCallback(func() {
+								t.defaultCallback(cast.ToString(v.Member))
+							})
+						})
+					}
 				}
 			}
 		}
@@ -91,7 +99,7 @@ func (t *Timer) processTimer() {
 func (t *Timer) AddTimer(durnation time.Duration, callback func()) string {
 	id := cast.ToString(t.snowFlake.Generate())
 	timestamp := time.Now().Add(durnation).UnixMilli()
-	t.redis.ZAdd(context.Background(), t.timerKey, redis.Z{Score: float64(timestamp), Member: id})
+	t.redis.ZAdd(t.ctx, t.timerKey, redis.Z{Score: float64(timestamp), Member: id})
 	if callback != nil {
 		t.timerCallback.Store(id, callback)
 	}
@@ -101,13 +109,13 @@ func (t *Timer) AddTimer(durnation time.Duration, callback func()) string {
 // RemoveTimer 删除定时器,如果定时器不存在,则不做任何操作
 func (t *Timer) RemoveTimer(timerId string) {
 	t.timerCallback.Delete(timerId)
-	t.redis.ZRem(context.Background(), t.timerKey, timerId)
+	t.redis.ZRem(t.ctx, t.timerKey, timerId)
 }
 
 // AddTimeWithId 添加定时器,指定定时器ID,如果定时器ID已存在,则覆盖原有定时器
 func (t *Timer) AddTimeWithId(timerId string, durnation time.Duration, callback func()) {
 	timestamp := time.Now().Add(durnation).UnixMilli()
-	t.redis.ZAdd(context.Background(), t.timerKey, redis.Z{Score: float64(timestamp), Member: timerId})
+	t.redis.ZAdd(t.ctx, t.timerKey, redis.Z{Score: float64(timestamp), Member: timerId})
 	if callback != nil {
 		t.timerCallback.Store(timerId, callback)
 	}
