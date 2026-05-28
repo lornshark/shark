@@ -12,8 +12,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/lornshark/shark/sharkdb"
 	"github.com/lornshark/shark/sharkelastic"
+	"github.com/lornshark/shark/sharkhttp"
 	"github.com/lornshark/shark/sharkkafka"
 	"github.com/lornshark/shark/sharkminio"
 	"github.com/lornshark/shark/sharkmongodb"
@@ -57,6 +59,7 @@ type App struct {
 	Mongodb    *mongo.Client
 	Rabbitmq   *sharkrabbitmq.Client
 	RisingWave *gorm.DB
+	Gin        *gin.Engine
 	// 内部组件
 	cancelFunc context.CancelFunc
 	sharklog   *sharklog.SharkLog
@@ -153,17 +156,22 @@ func New(options *Options) (*App, error) {
 	}
 	if options.timer && app.Redis != nil {
 		app.Timer = sharktimer.NewTimer(app.Context, app.Project, app.Name, app.Id, app.Redis)
+		app.Logger.Info("初始化timer成功")
 	}
-	if options.grpcport > 0 && app.Redis != nil {
-		server := sharkrpc.New(app.Context, app.Project, app.Redis, app.Logger, options.grpcport)
-		app.Logger.Info("开启rpc服务", zap.Int("port", options.grpcport))
+	if options.grpc > 0 && app.Redis != nil {
+		server := sharkrpc.New(app.Context, app.Project, app.Redis, app.Logger, options.grpc)
+		app.Logger.Info("开启rpc服务", zap.Int("port", options.grpc))
 		app.Grpc = server
+	}
+	if options.http > 0 {
+		app.Gin = sharkhttp.New(app.Context, app.Env, app.Logger, options.http)
+		app.Logger.Info("开启http服务", zap.Int("port", options.http))
 	}
 	if options.pprof > 0 {
 		go app.pprof(options.pprof)
 	}
-	if options.checkport > 0 {
-		go app.health_service(options.checkport)
+	if options.health > 0 {
+		go app.health_service(options.health)
 	}
 	return app, nil
 }

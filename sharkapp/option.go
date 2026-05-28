@@ -25,9 +25,10 @@ type Options struct {
 	project    string
 	mongodb    *sharkmongodb.Config
 	rabbitmq   *sharkrabbitmq.Config
-	grpcport   int
-	checkport  int
+	grpc       int
+	health     int
 	risingwave *sharkrisingwave.Config
+	http       int
 }
 
 func NewOption() *Options {
@@ -104,12 +105,17 @@ func (s *Options) WithPprof(port int) *Options {
 	return s
 }
 
-func (s *Options) WithHealthCheck(port int) *Options {
-	s.checkport = port
+func (s *Options) WithHealth(port int) *Options {
+	s.health = port
 	return s
 }
 
 func (s *Options) WithGrpc(port int) *Options {
-	s.grpcport = port
+	s.grpc = port
+	return s
+}
+
+func (s *Options) WithHttp(port int) *Options {
+	s.http = port
 	return s
 }

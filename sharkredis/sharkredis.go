@@ -3,17 +3,15 @@ package sharkredis
 import (
 	"context"
 	"fmt"
-	"net"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
 type Config struct {
-	Host        string `json:"host" yaml:"host" mapstructure:"host"`                         // 连接地
-	Port        int    `json:"port" yaml:"port" mapstructure:"port"`                         // 连接端口
-	Password    string `json:"password" yaml:"password" mapstructure:"password"`             // 连接密码，默认值为 "" 表示不使用密码连接
-	ClusterHost string `json:"cluster_host" yaml:"cluster_host" mapstructure:"cluster_host"` // 集群连接地址，默认值为 "" 表示不替换集群连接地址
+	Host     string `json:"host" yaml:"host" mapstructure:"host"`             // 连接地
+	Port     int    `json:"port" yaml:"port" mapstructure:"port"`             // 连接端口
+	Password string `json:"password" yaml:"password" mapstructure:"password"` // 连接密码，默认值为 "" 表示不使用密码连接
 }
 
 func New(ctx context.Context, config *Config) (*redis.ClusterClient, error) {
@@ -36,14 +34,6 @@ func New(ctx context.Context, config *Config) (*redis.ClusterClient, error) {
 		MaxRetryBackoff: 1 * time.Second,        // 最大重试间隔
 		NewClient: func(opt *redis.Options) *redis.Client {
 			return redis.NewClient(opt)
-		},
-		Dialer: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			clusterAddr := addr
-			// 如果 test-host 配置了值,且不是Prod环境，则使用 cluster-host 连接 Redis 集群
-			if config.ClusterHost != "" {
-				clusterAddr = fmt.Sprintf("%v:%v", config.ClusterHost, config.Port)
-			}
-			return net.Dial(network, clusterAddr)
 		},
 	})
 	_, err := client.Ping(ctx).Result()
