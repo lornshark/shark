@@ -59,7 +59,7 @@ type App struct {
 	Mongodb    *mongo.Client
 	Rabbitmq   *sharkrabbitmq.Client
 	RisingWave *gorm.DB
-	Gin        *gin.Engine
+	GinEngine  *gin.Engine
 	// 内部组件
 	cancelFunc context.CancelFunc
 	sharklog   *sharklog.SharkLog
@@ -168,7 +168,7 @@ func New(options *Options) (*App, error) {
 		app.Grpc = server
 	}
 	if options.http > 0 {
-		app.Gin = sharkhttp.New(app.Context, app.Env, app.Logger, options.http)
+		app.GinEngine = sharkhttp.New(app.Context, app.Env, app.Logger, options.http)
 		app.Logger.Info("开启http服务", zap.Int("port", options.http))
 		if options.env == "dev" {
 			app.Logger.Debug("swagger url: http://127.0.0.1" + ":" + fmt.Sprint(options.http) + "/swagger/index.html")
@@ -220,13 +220,14 @@ func (a *App) Hunt() {
 }
 
 func (a *App) banner() {
-	banner := `███████╗██╗  ██╗ █████╗ ██████╗ ██╗  ██╗    ██╗  ██╗██╗   ██╗███╗   ██╗████████╗██╗███╗   ██╗ ██████╗
-██╔════╝██║  ██║██╔══██╗██╔══██╗██║ ██╔╝    ██║  ██║██║   ██║████╗  ██║╚══██╔══╝██║████╗  ██║██╔════╝
-███████╗███████║███████║██████╔╝█████╔╝     ███████║██║   ██║██╔██╗ ██║   ██║   ██║██╔██╗ ██║██║  ███╗
-╚════██║██╔══██║██╔══██║██╔══██╗██╔═██╗     ██╔══██║██║   ██║██║╚██╗██║   ██║   ██║██║╚██╗██║██║   ██║
-███████║██║  ██║██║  ██║██║  ██║██║  ██╗    ██║  ██║╚██████╔╝██║ ╚████║   ██║   ██║██║ ╚████║╚██████╔╝
-╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝    ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝ ╚═════╝`
-	fmt.Println(banner)
+	a.Logger.Info("****************server start****************")
+	//	banner := `███████╗██╗  ██╗ █████╗ ██████╗ ██╗  ██╗    ██╗  ██╗██╗   ██╗███╗   ██╗████████╗██╗███╗   ██╗ ██████╗
+	// ██╔════╝██║  ██║██╔══██╗██╔══██╗██║ ██╔╝    ██║  ██║██║   ██║████╗  ██║╚══██╔══╝██║████╗  ██║██╔════╝
+	// ███████╗███████║███████║██████╔╝█████╔╝     ███████║██║   ██║██╔██╗ ██║   ██║   ██║██╔██╗ ██║██║  ███╗
+	// ╚════██║██╔══██║██╔══██║██╔══██╗██╔═██╗     ██╔══██║██║   ██║██║╚██╗██║   ██║   ██║██║╚██╗██║██║   ██║
+	// ███████║██║  ██║██║  ██║██║  ██║██║  ██╗    ██║  ██║╚██████╔╝██║ ╚████║   ██║   ██║██║ ╚████║╚██████╔╝
+	// ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝    ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝ ╚═════╝`
+	//	fmt.Println(banner)
 }
 
 func (a *App) Go(fn func(ctx context.Context)) {
