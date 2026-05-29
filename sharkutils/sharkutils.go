@@ -1,6 +1,7 @@
 package sharkutils
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -36,4 +37,14 @@ func Recover(logger *zap.Logger, name string) {
 // Pointer 返回值的指针
 func Ptr[T any](v T) *T {
 	return &v
+}
+
+// IsContextDone 判断 context 是否已被取消
+func IsContextDone(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
 }

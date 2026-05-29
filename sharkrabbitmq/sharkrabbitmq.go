@@ -9,9 +9,17 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/howeyc/crc16"
+	"github.com/lornshark/shark/sharkutils"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
 )
+
+// 投递语义说明：
+// - 尽力而为（Best effort）投递
+// - 当发布缓冲区已满时，消息可能被丢弃
+// - 在优雅关闭过程中，消息可能被丢弃
+// - 不对“发送过程中（in-flight）消息”提供持久化保障
+// - 消费端为至少一次投递（at-least-once），业务必须保证幂等性
 
 type Config struct {
 	Host     []string `json:"host" yaml:"host" mapstructure:"host"`             // 连接地址
@@ -20,16 +28,17 @@ type Config struct {
 }
 
 type Client struct {
-	config   *Config
-	wg       *sync.WaitGroup
-	ctx      context.Context
-	logger   *zap.Logger
-	conn     *amqp.Connection
-	connLock sync.Mutex
-	channel  []*amqp.Channel
-	publish  chan publishMsg
-	name     string
-	id       string
+	config    *Config
+	wg        *sync.WaitGroup
+	ctx       context.Context
+	logger    *zap.Logger
+	conn      *amqp.Connection
+	connLock  sync.Mutex
+	channel   *amqp.Channel
+	publish   chan publishMsg
+	name      string
+	id        string
+	closeLock sync.Mutex
 }
 
 type publishMsg struct {
@@ -49,35 +58,74 @@ func New(ctx context.Context, logger *zap.Logger, wg *sync.WaitGroup, config *Co
 		name:   name,
 		id:     id,
 	}
-	client.publish = make(chan publishMsg, 10000)
+	client.publish = make(chan publishMsg, 100000)
 	innerwg := &sync.WaitGroup{}
 	innerwg.Add(1)
 	go client.connect(int(index), innerwg)
 	innerwg.Wait()
 	wg.Add(1)
-	go client.publis_msg()
+	go client.publish_msg()
+	go client.exit_waiting()
 	return client, nil
 }
 
+func (c *Client) exit_waiting() {
+	<-c.ctx.Done()
+	c.closeLock.Lock()
+	defer c.closeLock.Unlock()
+	close(c.publish)
+}
+
+func (c *Client) get_conn() *amqp.Connection {
+	c.connLock.Lock()
+	defer c.connLock.Unlock()
+	conn := c.conn
+	return conn
+}
+
+func (c *Client) get_channel() *amqp.Channel {
+	c.connLock.Lock()
+	defer c.connLock.Unlock()
+	channel := c.channel
+	return channel
+}
+
+func (c *Client) set_conn(conn *amqp.Connection) {
+	c.connLock.Lock()
+	defer c.connLock.Unlock()
+	c.conn = conn
+}
+
+func (c *Client) set_channel(channel *amqp.Channel) {
+	c.connLock.Lock()
+	defer c.connLock.Unlock()
+	c.channel = channel
+}
+
+// connect 连接 Rabbitmq，连接断开时会自动重连
 func (c *Client) connect(index int, wg *sync.WaitGroup) {
 	count := 0
 	for {
+		if sharkutils.IsContextDone(c.ctx) {
+			break
+		}
 		amqpurl := "amqp://" + c.config.User + ":" + c.config.Password + "@" + c.config.Host[index]
 		conn, err := amqp.Dial(amqpurl)
 		if err != nil {
 			c.logger.Error("连接Rabbitmq失败", zap.String("host", c.config.Host[index]), zap.Error(err))
-			time.Sleep(1 * time.Second)
+			time.Sleep(time.Second)
 			continue
 		}
-		c.connLock.Lock()
-		c.conn = conn
-		for i := 0; i < 5; i++ {
-			ch, _ := conn.Channel()
-			if ch != nil {
-				c.channel = append(c.channel, ch)
-			}
+		channel, err := conn.Channel()
+		if err != nil {
+			c.logger.Error("创建Rabbitmq Channel失败", zap.String("host", c.config.Host[index]), zap.Error(err))
+			conn.Close()
+			time.Sleep(time.Second)
+			continue
 		}
-		c.connLock.Unlock()
+
+		c.set_conn(conn)
+		c.set_channel(channel)
 		if count > 0 {
 			c.logger.Info("重连Rabbitmq成功", zap.String("host", c.config.Host[index]))
 		} else {
@@ -87,52 +135,33 @@ func (c *Client) connect(index int, wg *sync.WaitGroup) {
 		conn.NotifyClose(connErr)
 		e := <-connErr
 		c.logger.Warn("Rabbitmq连接已关闭", zap.String("host", c.config.Host[index]), zap.Error(e))
-		c.connLock.Lock()
-		c.conn.Close()
-		c.conn = nil
-		c.channel = nil
-		c.connLock.Unlock()
+		c.set_channel(nil)
+		c.set_conn(nil)
 		count++
 	}
 }
 
-func (c *Client) publis_msg() {
+// 发布消息
+func (c *Client) publish_msg() {
 	defer c.wg.Done()
-	index := 0
-	for {
-		select {
-		case msg, ok := <-c.publish:
-			if !ok {
-				return
+	for msg := range c.publish {
+		for {
+			ch := c.get_channel()
+			if sharkutils.IsContextDone(c.ctx) && ch == nil {
+				// 如果上下文已关闭且没有可用的连接,丢掉消息退出
+				c.logger.Error("消息丢失: Rabbitmq连接已关闭且上下文已结束", zap.String("exchange", msg.exchange), zap.String("key", msg.key), zap.ByteString("value", msg.value.Body))
+				break
 			}
-		loop:
-			for {
-				select {
-				case <-c.ctx.Done():
-					return
-				default:
-					index++
-					index = index % len(c.channel)
-					var ch *amqp.Channel
-					c.connLock.Lock()
-					if len(c.channel) > 0 {
-						ch = c.channel[index]
-					}
-					c.connLock.Unlock()
-					if ch == nil {
-						time.Sleep(1 * time.Second)
-						continue
-					}
-					err := ch.Publish(msg.exchange, msg.key, false, false, *msg.value)
-					if err != nil {
-						time.Sleep(1 * time.Second)
-						continue
-					}
-					break loop
-				}
+			if ch == nil {
+				time.Sleep(time.Second)
+				continue
 			}
-		case <-c.ctx.Done():
-			return
+			err := ch.Publish(msg.exchange, msg.key, false, false, *msg.value)
+			if err != nil {
+				time.Sleep(time.Second)
+				continue
+			}
+			break
 		}
 	}
 }
@@ -141,58 +170,62 @@ func (c *Client) publis_msg() {
 // 消息处理失败时，handler 可以选择不 ack 消息，RabbitMQ 会重新投递该消息给其他消费者（或同一消费者的下一次消费），直到消息被成功处理并 ack。
 // 注意：handler 内部应该捕获异常，避免 panic 导致消费者崩溃。
 func (c *Client) Consume(exchange string, queue string, key string, handler func(*amqp.Delivery)) {
-	safeHandler := func(msg *amqp.Delivery) {
-		defer func() {
-			if r := recover(); r != nil {
-				c.logger.Error("Rabbitmq消费者处理消息panic", zap.Any("r", r), zap.String("stack", string(debug.Stack())))
-			}
-		}()
-		handler(msg)
-	}
 	go func() {
 		for {
-			c.connLock.Lock()
-			conn := c.conn
-			c.connLock.Unlock()
-
+			if sharkutils.IsContextDone(c.ctx) {
+				return
+			}
+			conn := c.get_conn()
 			if conn == nil {
 				time.Sleep(1 * time.Second)
 				continue
 			}
 			channel, err := conn.Channel()
 			if err != nil {
-				time.Sleep(1 * time.Second)
+				time.Sleep(time.Second)
 				continue
 			}
 			channel.Qos(10000, 0, false)
 			channel.ExchangeDeclare(exchange, "topic", true, false, false, false, nil)
 			channel.QueueDeclare(queue, true, false, false, false, nil)
 			channel.QueueBind(queue, key, exchange, false, nil)
-			ch, err := channel.Consume(queue, fmt.Sprintf("%v.%v", c.name, c.id), false, false, false, false, nil)
+			data, err := channel.Consume(queue, fmt.Sprintf("%v.%v", c.name, c.id), false, false, false, false, nil)
 			if err != nil {
-				time.Sleep(1 * time.Second)
-				continue
-			}
-		loop:
-			for {
-				select {
-				case <-c.ctx.Done():
-					break loop
-				case msg, ok := <-ch:
-					if !ok {
-						break loop
-					}
-					safeHandler(&msg)
-				}
+				time.Sleep(time.Second)
+			} else {
+				c.handle_channel(data, handler)
 			}
 			channel.Close()
 		}
 	}()
 }
 
+func (c *Client) self_handle(msg *amqp.Delivery, handler func(*amqp.Delivery)) {
+	defer func() {
+		if r := recover(); r != nil {
+			c.logger.Error("Rabbitmq消费者处理消息panic", zap.Any("r", r), zap.String("stack", string(debug.Stack())))
+		}
+	}()
+	handler(msg)
+}
+
+func (c *Client) handle_channel(channel <-chan amqp.Delivery, handler func(*amqp.Delivery)) {
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case msg, ok := <-channel:
+			if !ok {
+				return
+			}
+			c.self_handle(&msg, handler)
+		}
+	}
+}
+
 // Publish 发布消息，exchange 和 key 由调用方指定，value 可以是 string、[]byte 或任意结构体
-// string,[]byte 必须是 json 结构
-func (c *Client) Publish(exchange string, key string, value any) {
+// string,[]byte 必须是 json 结构,消息体最大支持10KB
+func (c *Client) Publish(exchange string, key string, value any) error {
 	var body []byte
 	switch v := value.(type) {
 	case string:
@@ -202,7 +235,10 @@ func (c *Client) Publish(exchange string, key string, value any) {
 	default:
 		body, _ = sonic.Marshal(value)
 	}
-	c.publish <- publishMsg{
+	if len(body) > 1024*10 {
+		return fmt.Errorf("消息体过大，最大支持10KB")
+	}
+	msg := publishMsg{
 		exchange: exchange,
 		key:      key,
 		value: &amqp.Publishing{
@@ -210,23 +246,37 @@ func (c *Client) Publish(exchange string, key string, value any) {
 			Body:        []byte(body),
 		},
 	}
+	if sharkutils.IsContextDone(c.ctx) {
+		return fmt.Errorf("client is closed")
+	}
+	c.closeLock.Lock()
+	defer c.closeLock.Unlock()
+	select {
+	case c.publish <- msg:
+		return nil
+	default:
+		return fmt.Errorf("publish channel is full")
+	}
 }
 
 // DeleteQueue 删除队列,未消费的消息会被删除
 func (c *Client) DeleteQueue(queue string) {
 	for {
-		c.connLock.Lock()
-		conn := c.conn
-		c.connLock.Unlock()
+		if sharkutils.IsContextDone(c.ctx) {
+			return
+		}
+		conn := c.get_conn()
 		if conn == nil {
-			time.Sleep(1 * time.Second)
+			time.Sleep(time.Second)
 			continue
 		}
-		channel, err := c.conn.Channel()
+		channel, err := conn.Channel()
 		if err != nil {
-			time.Sleep(1 * time.Second)
+			time.Sleep(time.Second)
 			continue
 		}
 		channel.QueueDelete(queue, false, false, false)
+		channel.Close()
+		break
 	}
 }
