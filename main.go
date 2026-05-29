@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/lornshark/shark/sharkapp"
-	"github.com/lornshark/shark/sharkboot"
 )
 
 type MyApp struct {
@@ -10,9 +9,8 @@ type MyApp struct {
 }
 
 func main() {
-	boot := sharkboot.New("kgame", "game-test", "1", "dev", "192.168.191.100", "6379", "CEki57pxTJyYaLD")
-	boot.WithRedis().WithDb().WithTimer().WithElastic().WithKafka().WithMinio().WithMongodb().WithRabbitmq().WithRisingwave()
-	app, err := sharkapp.New(boot.Options())
+	options := sharkapp.NewOptionWithRedis("kgame", "game-test", "1", "dev", "192.168.191.100", "6379", "CEki57pxTJyYaLD")
+	app, err := sharkapp.New(options)
 	if err != nil {
 		panic(err)
 	}

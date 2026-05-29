@@ -84,6 +84,7 @@ func New(options *Options) (*App, error) {
 			return nil, err
 		}
 		app.Kafka = kafka
+
 	}
 	var kafkaWriter *kafka.Writer
 	if app.Kafka != nil {
@@ -91,6 +92,9 @@ func New(options *Options) (*App, error) {
 	}
 	app.sharklog = sharklog.New(app.Context, app.Name, app.Id, kafkaWriter)
 	app.Logger = app.sharklog.Zap
+	if options.kafka != nil {
+		app.Logger.Info("连接kafka成功", zap.String("host", options.kafka.Host))
+	}
 	if options.redis != nil {
 		redis, err := sharkredis.New(app.Context, options.redis)
 		if err != nil {
