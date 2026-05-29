@@ -37,6 +37,39 @@ import (
 	"gorm.io/gorm"
 )
 
+// 使用示例 使用 redis 作为配置工具:
+//  project := "kgame"
+// 	name := "game-test"
+// 	id := "1"
+// 	options := sharkapp.NewOptionWithRedis("dev", project, name, id, "192.168.191.100", "6379", "CEki57pxTJyYaLD")
+// 	options.WithDb(nil).WithRedis(nil).WithKafka(nil).WithElastic(nil).
+// 		WithMongodb(nil).WithRabbitmq(nil).WithRisingwave(nil)
+// 	app, err := sharkapp.New(options)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	app.Hunt()
+
+// 也可以直接创建 App 实例，不使用配置工具，
+//
+//	options := sharkapp.NewOption("dev", project, name, id)
+//  options.WithDb(&sharkdb.Config{Host: "", Port: 3306, User: "", Password: "", Database: ""}).WithRedis(&sharkredis.Config{Host: "", Port: 6379, Password: ""}).
+//		WithKafka(&sharkkafka.Config{Host: "", Port: 9092}).
+//		WithElastic(&sharkelastic.Config{Host: "", Port: 9200}).
+//		WithMongodb(&sharkmongodb.Config{Host: "", Port: 27017}).
+//		WithRabbitmq(&sharkrabbitmq.Config{Host: []string{""}, Port: 5672, User: "", Password: ""}).
+//		WithRisingwave(&sharkrisingwave.Config{Host: "", Port: 3306, User: "", Password: "", Database: ""})
+// 	app, err := sharkapp.New(options)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	app.Hunt()
+
+// 组件单独使用
+// redis, err := sharkredis.New(ctx, &sharkredis.Config{Host: "", Port: 6379, Password: ""})
+// mongo,err := sharkmongodb.New(ctx, &sharkmongodb.Config{Host: "", Port: 27017})
+// redis,err := sharkredis.New(ctx, &sharkredis.Config{Host: "", Port: 6379, Password: ""})
+
 type App struct {
 	// 生命周期
 	Wg      *sync.WaitGroup
