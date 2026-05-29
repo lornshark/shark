@@ -32,3 +32,8 @@ func Recover(logger *zap.Logger, name string) {
 		logger.Error(fmt.Sprintf("panic: %s %v\n%s", name, r, string(buf[:n])))
 	}
 }
+
+// Pointer 返回值的指针
+func Ptr[T any](v T) *T {
+	return &v
+}
