@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/howeyc/crc16"
 	"github.com/lornshark/shark/sharkdb"
 	"github.com/lornshark/shark/sharkelastic"
 	"github.com/lornshark/shark/sharkhttp"
@@ -161,7 +162,9 @@ func New(options *Options) (*App, error) {
 			app.Logger.Error("连接rabbitmq失败", zap.Strings("host", options.rabbitmq.Host), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接rabbitmq成功", zap.Strings("host", options.rabbitmq.Host))
+		index := crc16.Checksum([]byte(app.Name), crc16.IBMTable)
+		index = index % uint16(len(options.rabbitmq.Host))
+		app.Logger.Info("连接rabbitmq成功", zap.String("host", options.rabbitmq.Host[index]))
 		app.Rabbitmq = mq
 	}
 	if options.risingwave != nil {

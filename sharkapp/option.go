@@ -1,26 +1,21 @@
 package sharkapp
 
 import (
-	"context"
-	"fmt"
+	"os"
+	"strings"
 
 	"github.com/lornshark/shark/sharkdb"
 	"github.com/lornshark/shark/sharkelastic"
-	"github.com/lornshark/shark/sharkjson"
 	"github.com/lornshark/shark/sharkkafka"
 	"github.com/lornshark/shark/sharkminio"
 	"github.com/lornshark/shark/sharkmongodb"
 	"github.com/lornshark/shark/sharkrabbitmq"
 	"github.com/lornshark/shark/sharkredis"
 	"github.com/lornshark/shark/sharkrisingwave"
-	"github.com/spf13/cast"
+	"github.com/spf13/viper"
 )
 
 type Options struct {
-	config_redis_host     string
-	config_redis_port     string
-	config_redis_password string
-
 	id         string
 	db         *sharkdb.Config
 	env        string
@@ -40,226 +35,42 @@ type Options struct {
 	http       int
 }
 
-func NewOption(env, project, name, id string) *Options {
-	return &Options{
+func NewOption(project string, name string) *Options {
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath(".")
+	viper.AddConfigPath("./config")
+	err := viper.ReadInConfig()
+	if err != nil {
+		panic(err)
+	}
+	env := "dev"
+	id := "1"
+	// 如果在 k8s 环境中，优先使用环境变量中的配置
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+		viper.AutomaticEnv()
+		env = viper.GetString("env")
+		id = viper.GetString("id")
+	}
+	options := &Options{
 		project: project,
 		name:    name,
-		id:      id,
 		env:     env,
+		id:      id,
 	}
-}
-
-func (s *Options) WithKafka(config *sharkkafka.Config) *Options {
-	if config == nil {
-		r, err := sharkredis.New(context.Background(), &sharkredis.Config{
-			Host:     s.config_redis_host,
-			Port:     cast.ToInt(s.config_redis_port),
-			Password: s.config_redis_password,
-		})
-		if err != nil {
-			return s
-		}
-		value, err := r.Get(context.Background(), s.project+":system:config:kafka").Result()
-		if err != nil {
-			return s
-		}
-		config = sharkjson.ParseJsonString[sharkkafka.Config](value)
-	}
-	s.kafka = config
-	return s
-}
-
-func (s *Options) WithRedis(config *sharkredis.Config) *Options {
-	if config == nil {
-		r, err := sharkredis.New(context.Background(), &sharkredis.Config{
-			Host:     s.config_redis_host,
-			Port:     cast.ToInt(s.config_redis_port),
-			Password: s.config_redis_password,
-		})
-		if err != nil {
-			return s
-		}
-		value, err := r.Get(context.Background(), s.project+":system:config:redis").Result()
-		if err != nil {
-			return s
-		}
-		config = sharkjson.ParseJsonString[sharkredis.Config](value)
-	}
-	s.redis = config
-	return s
-}
-
-func (s *Options) WithDb(config *sharkdb.Config) *Options {
-	if config == nil {
-		r, err := sharkredis.New(context.Background(), &sharkredis.Config{
-			Host:     s.config_redis_host,
-			Port:     cast.ToInt(s.config_redis_port),
-			Password: s.config_redis_password,
-		})
-		if err != nil {
-			return s
-		}
-		value, err := r.Get(context.Background(), s.project+":system:config:db").Result()
-		if err != nil {
-			return s
-		}
-		config = sharkjson.ParseJsonString[sharkdb.Config](value)
-	}
-	s.db = config
-	return s
-}
-
-func (s *Options) WithElastic(config *sharkelastic.Config) *Options {
-	if config == nil {
-		r, err := sharkredis.New(context.Background(), &sharkredis.Config{
-			Host:     s.config_redis_host,
-			Port:     cast.ToInt(s.config_redis_port),
-			Password: s.config_redis_password,
-		})
-		if err != nil {
-			return s
-		}
-		value, err := r.Get(context.Background(), s.project+":system:config:elastic").Result()
-		if err != nil {
-			return s
-		}
-		config = sharkjson.ParseJsonString[sharkelastic.Config](value)
-	}
-	s.elastic = config
-	return s
-}
-
-func (s *Options) WithRabbitmq(config *sharkrabbitmq.Config) *Options {
-	if config == nil {
-		r, err := sharkredis.New(context.Background(), &sharkredis.Config{
-			Host:     s.config_redis_host,
-			Port:     cast.ToInt(s.config_redis_port),
-			Password: s.config_redis_password,
-		})
-		if err != nil {
-			return s
-		}
-		value, err := r.Get(context.Background(), s.project+":system:config:rabbitmq").Result()
-		if err != nil {
-			return s
-		}
-		config = sharkjson.ParseJsonString[sharkrabbitmq.Config](value)
-	}
-	s.rabbitmq = config
-	return s
-}
-
-func (s *Options) WithRisingwave(config *sharkrisingwave.Config) *Options {
-	if config == nil {
-		r, err := sharkredis.New(context.Background(), &sharkredis.Config{
-			Host:     s.config_redis_host,
-			Port:     cast.ToInt(s.config_redis_port),
-			Password: s.config_redis_password,
-		})
-		if err != nil {
-			return s
-		}
-		value, err := r.Get(context.Background(), s.project+":system:config:risingwave").Result()
-		if err != nil {
-			return s
-		}
-		config = sharkjson.ParseJsonString[sharkrisingwave.Config](value)
-	}
-	s.risingwave = config
-	return s
-}
-
-func (s *Options) WithMongodb(config *sharkmongodb.Config) *Options {
-	if config == nil {
-		r, err := sharkredis.New(context.Background(), &sharkredis.Config{
-			Host:     s.config_redis_host,
-			Port:     cast.ToInt(s.config_redis_port),
-			Password: s.config_redis_password,
-		})
-		if err != nil {
-			return s
-		}
-		value, err := r.Get(context.Background(), s.project+":system:config:mongodb").Result()
-		if err != nil {
-			return s
-		}
-		config = sharkjson.ParseJsonString[sharkmongodb.Config](value)
-	}
-	s.mongodb = config
-	return s
-}
-
-func (s *Options) WithMinio(config *sharkminio.Config) *Options {
-	if config == nil {
-		r, err := sharkredis.New(context.Background(), &sharkredis.Config{
-			Host:     s.config_redis_host,
-			Port:     cast.ToInt(s.config_redis_port),
-			Password: s.config_redis_password,
-		})
-		if err != nil {
-			return s
-		}
-		value, err := r.Get(context.Background(), s.project+":system:config:minio").Result()
-		if err != nil {
-			return s
-		}
-		config = sharkjson.ParseJsonString[sharkminio.Config](value)
-	}
-
-	s.minio = config
-	return s
-}
-
-func (s *Options) WithTimer(timer bool) *Options {
-	s.timer = timer
-	return s
-}
-
-func (s *Options) WithPprof(port int) *Options {
-	s.pprof = port
-	return s
-}
-
-func (s *Options) WithHealth(port int) *Options {
-	s.health = port
-	return s
-}
-
-func (s *Options) WithGrpc(port int) *Options {
-	s.grpc = port
-	return s
-}
-
-func (s *Options) WithHttp(port int) *Options {
-	s.http = port
-	return s
-}
-
-func NewOptionWithRedis(env, project, name, id, host, port, password string) *Options {
-	options := NewOption(env, project, name, id)
-	options.config_redis_host = host
-	options.config_redis_port = port
-	options.config_redis_password = password
-	k := fmt.Sprintf("%v:system:config:%v-%v", project, name, id)
-	r, err := sharkredis.New(context.Background(), &sharkredis.Config{
-		Host:     host,
-		Port:     cast.ToInt(port),
-		Password: password,
-	})
-	if err != nil {
-		return options
-	}
-	value, err := r.Get(context.Background(), k).Result()
-	if err != nil {
-		return options
-	}
-	mvalue := sharkjson.ParseJsonString[map[string]any](value)
-	if mvalue != nil {
-		options.WithTimer(cast.ToBool((*mvalue)["timer"]))
-		options.WithHttp(cast.ToInt((*mvalue)["http"]))
-		options.WithGrpc(cast.ToInt((*mvalue)["grpc"]))
-		options.WithPprof(cast.ToInt((*mvalue)["pprof"]))
-		options.WithHealth(cast.ToInt((*mvalue)["health"]))
-	}
+	viper.UnmarshalKey("redis", &options.redis)
+	viper.UnmarshalKey("db", &options.db)
+	viper.UnmarshalKey("minio", &options.minio)
+	viper.UnmarshalKey("kafka", &options.kafka)
+	viper.UnmarshalKey("elastic", &options.elastic)
+	viper.UnmarshalKey("mongodb", &options.mongodb)
+	viper.UnmarshalKey("rabbitmq", &options.rabbitmq)
+	viper.UnmarshalKey("risingwave", &options.risingwave)
+	viper.UnmarshalKey("timer", &options.timer)
+	viper.UnmarshalKey("pprof", &options.pprof)
+	viper.UnmarshalKey("grpc", &options.grpc)
+	viper.UnmarshalKey("health", &options.health)
+	viper.UnmarshalKey("http", &options.http)
 	return options
 }

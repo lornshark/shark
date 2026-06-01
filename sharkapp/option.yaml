@@ -1,0 +1,53 @@
+# 配置模板
+http: 3928
+grpc: 3929
+health: 3930
+pprof: 3931
+timer: true
+
+kafka:
+  host: 192.168.191.100
+  port: 9092
+  user:
+  password:
+
+redis:
+  host: 192.168.191.100
+  port: 6379
+  password: CEki57pxTJyYaLD
+
+db:
+  host: 192.168.191.100
+  port: 4000
+  user: root
+  password: CEki57pxTJyYaLD
+  database: kgame
+
+rabbitmq:
+  host: ["192.168.191.100:5672", "192.168.191.100:5673"]
+  user: root
+  password: CEki57pxTJyYaLD
+
+risingwave:
+  host: 192.168.191.100
+  port: 4566
+  user: root
+  password: CEki57pxTJyYaLD
+  database: kgame
+
+elastic:
+  host: http://192.168.191.100:9200
+  user: elastic
+  password: CEki57pxTJyYaLD
+
+mongodb:
+  host: 192.168.191.100
+  port: 27017
+  user: root
+  password: CEki57pxTJyYaLD
+
+minio:
+  host: 192.168.191.100
+  port: 9000
+  user: root
+  password: CEki57pxTJyYaLD
