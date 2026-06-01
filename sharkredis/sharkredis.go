@@ -3,15 +3,19 @@ package sharkredis
 import (
 	"context"
 	"fmt"
+	"net"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
 type Config struct {
-	Host     string `json:"host" yaml:"host" mapstructure:"host"`             // 连接地
-	Port     int    `json:"port" yaml:"port" mapstructure:"port"`             // 连接端口
-	Password string `json:"password" yaml:"password" mapstructure:"password"` // 连接密码，默认值为 "" 表示不使用密码连接
+	Host        string `json:"host" yaml:"host" mapstructure:"host"`                         // 连接地
+	Port        int    `json:"port" yaml:"port" mapstructure:"port"`                         // 连接端口
+	Password    string `json:"password" yaml:"password" mapstructure:"password"`             // 连接密码，默认值为 "" 表示不使用密码连接
+	ReplaceFrom string `json:"replace_from" yaml:"replace_from" mapstructure:"replace_from"` // 替换前缀，默认值为 "" 表示不替换
+	ReplaceTo   string `json:"replace_to" yaml:"replace_to" mapstructure:"replace_to"`       // 替换后缀，默认值为 "" 表示不替换
 }
 
 func New(ctx context.Context, config *Config) (*redis.ClusterClient, error) {
@@ -34,6 +38,12 @@ func New(ctx context.Context, config *Config) (*redis.ClusterClient, error) {
 		MaxRetryBackoff: 1 * time.Second,        // 最大重试间隔
 		NewClient: func(opt *redis.Options) *redis.Client {
 			return redis.NewClient(opt)
+		},
+		Dialer: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if config.ReplaceFrom != "" && config.ReplaceTo != "" {
+				addr = strings.ReplaceAll(addr, config.ReplaceFrom, config.ReplaceTo)
+			}
+			return net.Dial(network, addr)
 		},
 	})
 	_, err := client.Ping(ctx).Result()
