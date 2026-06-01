@@ -1,7 +1,6 @@
 package sharkapp
 
 import (
-	"os"
 	"strings"
 
 	"github.com/lornshark/shark/sharkdb"
@@ -36,41 +35,120 @@ type Options struct {
 }
 
 func NewOption(project string, name string) *Options {
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
-	viper.AddConfigPath("./config")
-	err := viper.ReadInConfig()
-	if err != nil {
-		panic(err)
+	v := viper.New()
+	v.SetConfigName("config")
+	v.SetConfigType("yaml")
+	v.AddConfigPath(".")
+	v.AddConfigPath("./config")
+	v.SetDefault("env", "dev")
+	v.SetDefault("id", "1")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+	if err := v.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			panic(err)
+		}
 	}
-	env := "dev"
-	id := "1"
-	// 如果在 k8s 环境中，优先使用环境变量中的配置
-	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
-		viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-		viper.AutomaticEnv()
-		env = viper.GetString("env")
-		id = viper.GetString("id")
-	}
+	env := strings.TrimSpace(v.GetString("env"))
+	id := strings.TrimSpace(v.GetString("id"))
 	options := &Options{
 		project: project,
 		name:    name,
 		env:     env,
 		id:      id,
 	}
-	viper.UnmarshalKey("redis", &options.redis)
-	viper.UnmarshalKey("db", &options.db)
-	viper.UnmarshalKey("minio", &options.minio)
-	viper.UnmarshalKey("kafka", &options.kafka)
-	viper.UnmarshalKey("elastic", &options.elastic)
-	viper.UnmarshalKey("mongodb", &options.mongodb)
-	viper.UnmarshalKey("rabbitmq", &options.rabbitmq)
-	viper.UnmarshalKey("risingwave", &options.risingwave)
-	viper.UnmarshalKey("timer", &options.timer)
-	viper.UnmarshalKey("pprof", &options.pprof)
-	viper.UnmarshalKey("grpc", &options.grpc)
-	viper.UnmarshalKey("health", &options.health)
-	viper.UnmarshalKey("http", &options.http)
+	options.timer = v.GetBool("timer")
+	options.pprof = v.GetInt("pprof")
+	options.grpc = v.GetInt("grpc")
+	options.health = v.GetInt("health")
+	options.http = v.GetInt("http")
+	if strings.TrimSpace(v.GetString("redis.host")) != "" {
+		options.redis = &sharkredis.Config{
+			Host:     strings.TrimSpace(v.GetString("redis.host")),
+			Port:     v.GetInt("redis.port"),
+			Password: strings.TrimSpace(v.GetString("redis.password")),
+		}
+	}
+	if strings.TrimSpace(v.GetString("db.host")) != "" {
+		options.db = &sharkdb.Config{
+			Host:     strings.TrimSpace(v.GetString("db.host")),
+			Port:     v.GetInt("db.port"),
+			User:     strings.TrimSpace(v.GetString("db.user")),
+			Password: strings.TrimSpace(v.GetString("db.password")),
+			Database: strings.TrimSpace(v.GetString("db.database")),
+		}
+	}
+	if strings.TrimSpace(v.GetString("elastic.host")) != "" {
+		options.elastic = &sharkelastic.Config{
+			Host:     strings.TrimSpace(v.GetString("elastic.host")),
+			User:     strings.TrimSpace(v.GetString("elastic.user")),
+			Password: strings.TrimSpace(v.GetString("elastic.password")),
+		}
+	}
+	if v.GetString("minio.host") != "" {
+		options.minio = &sharkminio.Config{
+			Host:     strings.TrimSpace(v.GetString("minio.host")),
+			Port:     v.GetInt("minio.port"),
+			User:     strings.TrimSpace(v.GetString("minio.user")),
+			Password: strings.TrimSpace(v.GetString("minio.password")),
+		}
+	}
+	if v.GetString("kafka.host") != "" {
+		options.kafka = &sharkkafka.Config{
+			Host:     strings.TrimSpace(v.GetString("kafka.host")),
+			Port:     v.GetInt("kafka.port"),
+			User:     strings.TrimSpace(v.GetString("kafka.user")),
+			Password: strings.TrimSpace(v.GetString("kafka.password")),
+		}
+	}
+	if v.GetString("mongodb.host") != "" {
+		options.mongodb = &sharkmongodb.Config{
+			Host:     strings.TrimSpace(v.GetString("mongodb.host")),
+			Port:     v.GetInt("mongodb.port"),
+			User:     strings.TrimSpace(v.GetString("mongodb.user")),
+			Password: strings.TrimSpace(v.GetString("mongodb.password")),
+		}
+	}
+	rmqhosts := v.GetStringSlice("rabbitmq.host")
+	if len(rmqhosts) == 0 {
+		if s := strings.TrimSpace(v.GetString("rabbitmq.host")); s != "" {
+			sp := strings.Split(s, ",")
+			for _, h := range sp {
+				if strings.TrimSpace(h) != "" {
+					rmqhosts = append(rmqhosts, strings.TrimSpace(h))
+				}
+			}
+		}
+	}
+	if len(rmqhosts) > 0 {
+		newHosts := []string{}
+		for i := range rmqhosts {
+			if strings.Contains(rmqhosts[i], ",") {
+				sp := strings.Split(rmqhosts[i], ",")
+				for _, h := range sp {
+					if strings.TrimSpace(h) != "" {
+						newHosts = append(newHosts, strings.TrimSpace(h))
+					}
+				}
+			} else {
+				newHosts = append(newHosts, rmqhosts[i])
+			}
+		}
+		rmqhosts = newHosts
+		options.rabbitmq = &sharkrabbitmq.Config{
+			Host:     rmqhosts,
+			User:     strings.TrimSpace(v.GetString("rabbitmq.user")),
+			Password: strings.TrimSpace(v.GetString("rabbitmq.password")),
+		}
+	}
+	if v.GetString("risingwave.host") != "" {
+		options.risingwave = &sharkrisingwave.Config{
+			Host:     strings.TrimSpace(v.GetString("risingwave.host")),
+			Port:     v.GetInt("risingwave.port"),
+			User:     strings.TrimSpace(v.GetString("risingwave.user")),
+			Password: strings.TrimSpace(v.GetString("risingwave.password")),
+			Database: strings.TrimSpace(v.GetString("risingwave.database")),
+		}
+	}
 	return options
 }

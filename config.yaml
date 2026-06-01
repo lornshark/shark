@@ -23,7 +23,7 @@ db:
   database: kgame
 
 rabbitmq:
-  host: ["192.168.191.100:5672", "192.168.191.100:5673"]
+  host: "192.168.191.100:5672,192.168.191.100:5673"
   user: root
   password: CEki57pxTJyYaLD
 
