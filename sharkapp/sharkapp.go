@@ -190,14 +190,22 @@ func New(options *Options) (*App, error) {
 		app.Logger.Info("连接minio成功", zap.String("host", options.minio.Host), zap.Int("port", options.minio.Port))
 		app.Minio = client
 	}
-	if options.timer && app.Redis != nil {
-		app.Timer = sharktimer.NewTimer(app.Context, app.Project, app.Name, app.Id, app.Redis)
-		app.Logger.Info("初始化timer成功")
+	if options.timer {
+		if app.Redis != nil {
+			app.Timer = sharktimer.NewTimer(app.Context, app.Project, app.Name, app.Id, app.Redis)
+			app.Logger.Info("初始化timer成功")
+		} else {
+			app.Logger.Error("初始化timer失败, 依赖redis, 请确保已正确配置redis连接")
+		}
 	}
-	if options.grpc > 0 && app.Redis != nil {
-		server := sharkrpc.New(app.Context, app.Project, app.Redis, app.Logger, options.grpc)
-		app.Logger.Info("开启rpc服务", zap.Int("port", options.grpc))
-		app.Grpc = server
+	if options.grpc > 0 {
+		if app.Redis != nil {
+			server := sharkrpc.New(app.Context, app.Project, app.Redis, app.Logger, options.grpc)
+			app.Logger.Info("开启rpc服务", zap.Int("port", options.grpc))
+			app.Grpc = server
+		} else {
+			app.Logger.Error("开启rpc服务失败, 依赖redis, 请确保已正确配置redis连接")
+		}
 	}
 	if options.http > 0 {
 		app.GinEngine = sharkhttp.New(app.Context, app.Env, app.Logger, options.http)
