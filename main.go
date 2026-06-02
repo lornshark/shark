@@ -19,11 +19,27 @@ import (
 
 // swag init --parseDependency -g  main.go
 
+type TestComponent struct {
+	app *sharkapp.App
+}
+
+func (t *TestComponent) Init() {
+	println("test component init")
+}
+
+func (t *TestComponent) Start() {
+	println("test component start")
+}
+
+func NewTestComponent(app *sharkapp.App) *TestComponent {
+	return &TestComponent{app: app}
+}
+
 func main() {
 	options := sharkapp.NewOption("kgame", "game-test")
 	app, err := sharkapp.New(options)
 	if err != nil {
 		panic(err)
 	}
-	app.Hunt()
+	app.Hunt(NewTestComponent(app))
 }

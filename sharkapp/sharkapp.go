@@ -238,8 +238,19 @@ func (a *App) health_service(port int) {
 	}
 }
 
-func (a *App) Hunt() {
+type AppComponent interface {
+	Init()
+	Start()
+}
+
+func (a *App) Hunt(components ...AppComponent) {
 	time.Sleep(time.Millisecond * 100)
+	for _, c := range components {
+		c.Init()
+	}
+	for _, c := range components {
+		c.Start()
+	}
 	a.banner()
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM)
