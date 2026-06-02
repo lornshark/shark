@@ -9,6 +9,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/howeyc/crc16"
+	"github.com/lornshark/shark/sharkfunc"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
 )
@@ -92,12 +93,18 @@ func (c *Client) get_channel() *amqp.Channel {
 func (c *Client) set_conn(conn *amqp.Connection) {
 	c.connLock.Lock()
 	defer c.connLock.Unlock()
+	if c.conn != nil && conn == nil {
+		c.conn.Close()
+	}
 	c.conn = conn
 }
 
 func (c *Client) set_channel(channel *amqp.Channel) {
 	c.connLock.Lock()
 	defer c.connLock.Unlock()
+	if c.channel != nil && channel == nil {
+		c.channel.Close()
+	}
 	c.channel = channel
 }
 
@@ -132,11 +139,16 @@ func (c *Client) connect(index int, wg *sync.WaitGroup) {
 		}
 		connErr := make(chan *amqp.Error, 1)
 		conn.NotifyClose(connErr)
-		e := <-connErr
-		c.logger.Warn("Rabbitmq连接已关闭", zap.String("host", c.config.Host[index]), zap.Error(e))
-		c.set_channel(nil)
-		c.set_conn(nil)
-		count++
+		select {
+		case <-c.ctx.Done():
+			conn.Close()
+			return
+		case e := <-connErr:
+			c.logger.Warn("Rabbitmq连接已关闭", zap.String("host", c.config.Host[index]), zap.Error(e))
+			c.set_channel(nil)
+			c.set_conn(nil)
+			count++
+		}
 	}
 }
 
@@ -165,10 +177,10 @@ func (c *Client) publish_msg() {
 	}
 }
 
-// Consume 消息消费，exchange、queue、key 由调用方指定，handler 是处理消息的回调函数。
+// Consume 消息消费，exchange、queue、key 由调用方指定，handler 是处理消息的回调函数。handler 需要负责消息 ack
 // 消息处理失败时，handler 可以选择不 ack 消息，RabbitMQ 会重新投递该消息给其他消费者（或同一消费者的下一次消费），直到消息被成功处理并 ack。
 // 注意：handler 内部应该捕获异常，避免 panic 导致消费者崩溃。
-func (c *Client) Consume(exchange string, queue string, key string, handler func(*amqp.Delivery)) {
+func (c *Client) Consume(exchange string, queue string, key string, handler func(amqp.Delivery)) {
 	go func() {
 		for {
 			if c.ctx.Err() != nil {
@@ -199,7 +211,7 @@ func (c *Client) Consume(exchange string, queue string, key string, handler func
 	}()
 }
 
-func (c *Client) self_handle(msg *amqp.Delivery, handler func(*amqp.Delivery)) {
+func (c *Client) self_handle(msg amqp.Delivery, handler func(amqp.Delivery)) {
 	defer func() {
 		if r := recover(); r != nil {
 			c.logger.Error("Rabbitmq消费者处理消息panic", zap.Any("r", r), zap.String("stack", string(debug.Stack())))
@@ -208,7 +220,7 @@ func (c *Client) self_handle(msg *amqp.Delivery, handler func(*amqp.Delivery)) {
 	handler(msg)
 }
 
-func (c *Client) handle_channel(channel <-chan amqp.Delivery, handler func(*amqp.Delivery)) {
+func (c *Client) handle_channel(channel <-chan amqp.Delivery, handler func(amqp.Delivery)) {
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -217,9 +229,68 @@ func (c *Client) handle_channel(channel <-chan amqp.Delivery, handler func(*amqp
 			if !ok {
 				return
 			}
-			c.self_handle(&msg, handler)
+			c.self_handle(msg, handler)
 		}
 	}
+}
+
+// BatchConsume 批量处理消息,handler 返回false或panic停止处理,且不会 ack 消息
+// handler 不能 ack 消息，BatchConsume 内部会在 handler 返回 true 时统一 ack 消息
+func (c *Client) BatchConsume(exchange string, queue string, key string, handler func([]amqp.Delivery) bool) {
+	go func() {
+		for {
+			if c.ctx.Err() != nil {
+				return
+			}
+			conn := c.get_conn()
+			if conn == nil {
+				time.Sleep(time.Second)
+				continue
+			}
+			channel, err := conn.Channel()
+			if err != nil {
+				time.Sleep(time.Second)
+				continue
+			}
+			channel.Qos(10000, 0, false)
+			channel.ExchangeDeclare(exchange, "topic", true, false, false, false, nil)
+			channel.QueueDeclare(queue, true, false, false, false, nil)
+			channel.QueueBind(queue, key, exchange, false, nil)
+			dataChannel, err := channel.Consume(queue, fmt.Sprintf("%v.%v", c.name, c.id), false, false, false, false, nil)
+			if err != nil {
+				channel.Close()
+				time.Sleep(time.Second)
+				continue
+			}
+			ctx, cancel := context.WithCancel(c.ctx)
+			safeHandler := func(msgs []amqp.Delivery) (result bool) {
+				defer func() {
+					if r := recover(); r != nil {
+						c.logger.Error("Rabbitmq消费者处理消息panic", zap.Any("r", r), zap.String("stack", string(debug.Stack())))
+						result = false
+					}
+				}()
+				return handler(msgs)
+			}
+			for {
+				messages := sharkfunc.DrainChannelN(ctx, dataChannel, 5000)
+				if len(messages) == 0 && ctx.Err() != nil {
+					cancel()
+					break
+				}
+				result := safeHandler(messages)
+				if !result {
+					cancel()
+					break
+				}
+				for _, msg := range messages {
+					msg.Ack(false)
+				}
+			}
+			cancel()
+			channel.Close()
+		}
+	}()
 }
 
 // Publish 发布消息，exchange 和 key 由调用方指定，value 可以是 string、[]byte 或任意结构体
