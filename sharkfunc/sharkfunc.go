@@ -4,53 +4,63 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
+	"runtime/debug"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 var ErrTimeout = errors.New("sharkfunc: timeout")
 
 // 指定时间内完成调用,否则返回超时错误
-func WithTimeout(timeout time.Duration, fn func(context.Context)) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func WithTimeout(parent context.Context, timeout time.Duration, fn func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	ch := make(chan error, 1)
 	go func() {
+		var err error
 		defer func() {
 			if r := recover(); r != nil {
 				select {
-				case ch <- fmt.Errorf("sharkfunc: panic: %v", r):
+				case ch <- fmt.Errorf("panic: %v\n%s", r, debug.Stack()):
 				default:
 				}
 				return
 			}
 			select {
-			case ch <- nil:
+			case ch <- err:
 			default:
 			}
 		}()
-		fn(ctx)
+		err = fn(ctx)
 	}()
 	select {
-	case <-ctx.Done():
-		return ErrTimeout
 	case err := <-ch:
 		return err
+	case <-ctx.Done():
+		select {
+		case err := <-ch:
+			return err
+		default:
+			return ErrTimeout
+		}
 	}
 }
 
 // 并行执行,funcs都执行完了才返回
-func ParallelRun(funcs ...func()) error {
+func ParallelCall(funcs ...func()) error {
 	var wg sync.WaitGroup
 	ch := make(chan error, len(funcs))
 	for _, fn := range funcs {
 		wg.Add(1)
 		go func(f func()) {
+			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					ch <- fmt.Errorf("panic: %v", r)
 				}
-				wg.Done()
 			}()
 			f()
 		}(fn)
@@ -63,4 +73,38 @@ func ParallelRun(funcs ...func()) error {
 		}
 	}
 	return nil
+}
+
+// 从channel中读取数据,直到channel关闭或者读取到指定数量的数据
+func DrainChannelN[T any](ctx context.Context, ch <-chan T, size int) []T {
+	var result []T = make([]T, 0, size)
+	if ch == nil || size <= 0 {
+		return result
+	}
+	for len(result) < size {
+		select {
+		case item, ok := <-ch:
+			if !ok {
+				return result
+			}
+			result = append(result, item)
+		case <-ctx.Done():
+			return result
+		}
+	}
+	return result
+}
+
+// Recover 从 panic 中恢复，并记录日志
+func Recover(logger *zap.Logger, name string) {
+	if r := recover(); r != nil {
+		buf := make([]byte, 4096)
+		n := runtime.Stack(buf, false)
+		logger.Error(fmt.Sprintf("panic: %s %v\n%s", name, r, string(buf[:n])))
+	}
+}
+
+// Pointer 返回值的指针
+func Ptr[T any](v T) *T {
+	return &v
 }

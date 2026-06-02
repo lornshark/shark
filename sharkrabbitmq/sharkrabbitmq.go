@@ -9,7 +9,6 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/howeyc/crc16"
-	"github.com/lornshark/shark/sharkutils"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
 )
@@ -106,7 +105,7 @@ func (c *Client) set_channel(channel *amqp.Channel) {
 func (c *Client) connect(index int, wg *sync.WaitGroup) {
 	count := 0
 	for {
-		if sharkutils.IsContextDone(c.ctx) {
+		if c.ctx.Err() != nil {
 			break
 		}
 		amqpurl := "amqp://" + c.config.User + ":" + c.config.Password + "@" + c.config.Host[index]
@@ -147,7 +146,7 @@ func (c *Client) publish_msg() {
 	for msg := range c.publish {
 		for {
 			ch := c.get_channel()
-			if sharkutils.IsContextDone(c.ctx) && ch == nil {
+			if c.ctx.Err() != nil && ch == nil {
 				// 如果上下文已关闭且没有可用的连接,丢掉消息退出
 				c.logger.Error("消息丢失: Rabbitmq连接已关闭且上下文已结束", zap.String("exchange", msg.exchange), zap.String("key", msg.key), zap.ByteString("value", msg.value.Body))
 				break
@@ -172,7 +171,7 @@ func (c *Client) publish_msg() {
 func (c *Client) Consume(exchange string, queue string, key string, handler func(*amqp.Delivery)) {
 	go func() {
 		for {
-			if sharkutils.IsContextDone(c.ctx) {
+			if c.ctx.Err() != nil {
 				return
 			}
 			conn := c.get_conn()
@@ -246,7 +245,7 @@ func (c *Client) Publish(exchange string, key string, value any) error {
 			Body:        []byte(body),
 		},
 	}
-	if sharkutils.IsContextDone(c.ctx) {
+	if c.ctx.Err() != nil {
 		return fmt.Errorf("client is closed")
 	}
 	c.closeLock.Lock()
@@ -262,7 +261,7 @@ func (c *Client) Publish(exchange string, key string, value any) error {
 // DeleteQueue 删除队列,未消费的消息会被删除
 func (c *Client) DeleteQueue(queue string) {
 	for {
-		if sharkutils.IsContextDone(c.ctx) {
+		if c.ctx.Err() != nil {
 			return
 		}
 		conn := c.get_conn()

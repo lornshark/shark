@@ -31,7 +31,6 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/olivere/elastic/v7"
 	"github.com/redis/go-redis/v9"
-	"github.com/segmentio/kafka-go"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
@@ -112,20 +111,17 @@ func New(options *Options) (*App, error) {
 		Wg:         &sync.WaitGroup{},
 		Sg:         &singleflight.Group{},
 	}
+	app.sharklog = sharklog.New(app.Context, app.Name, app.Id)
+	app.Logger = app.sharklog.Zap
 	if options.kafka != nil {
-		kafka, err := sharkkafka.New(app.Context, options.kafka)
+		kafka, err := sharkkafka.New(app.Context, options.kafka, app.Logger)
 		if err != nil {
 			return nil, err
 		}
 		app.Kafka = kafka
-
+		kafkaLogWriter, _ := app.Kafka.Writer(fmt.Sprintf("%v_game_log", app.Project))
+		app.sharklog.SetKafkaWriter(kafkaLogWriter)
 	}
-	var kafkaWriter *kafka.Writer
-	if app.Kafka != nil {
-		kafkaWriter, _ = app.Kafka.Writer(fmt.Sprintf("%v_game_log", app.Project))
-	}
-	app.sharklog = sharklog.New(app.Context, app.Name, app.Id, kafkaWriter)
-	app.Logger = app.sharklog.Zap
 	if options.kafka != nil {
 		app.Logger.Info("连接kafka成功", zap.String("host", options.kafka.Host))
 	}

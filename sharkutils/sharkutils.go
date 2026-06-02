@@ -1,14 +1,9 @@
 package sharkutils
 
 import (
-	"context"
 	"crypto/md5"
 	"encoding/hex"
-	"fmt"
 	crand "math/rand/v2"
-	"runtime"
-
-	"go.uber.org/zap"
 )
 
 // RandNum 生成[min,max)之间的随机数
@@ -23,28 +18,4 @@ func RandNum(min int, max int) int {
 func Md5(data []byte) string {
 	h := md5.New()
 	return hex.EncodeToString(h.Sum(data))
-}
-
-// Recover 从 panic 中恢复，并记录日志
-func Recover(logger *zap.Logger, name string) {
-	if r := recover(); r != nil {
-		buf := make([]byte, 4096)
-		n := runtime.Stack(buf, false)
-		logger.Error(fmt.Sprintf("panic: %s %v\n%s", name, r, string(buf[:n])))
-	}
-}
-
-// Pointer 返回值的指针
-func Ptr[T any](v T) *T {
-	return &v
-}
-
-// IsContextDone 判断 context 是否已被取消
-func IsContextDone(ctx context.Context) bool {
-	select {
-	case <-ctx.Done():
-		return true
-	default:
-		return false
-	}
 }

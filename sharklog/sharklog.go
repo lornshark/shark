@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-func New(ctx context.Context, name string, id string, writer *kafka.Writer) *SharkLog {
+func New(ctx context.Context, name string, id string) *SharkLog {
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.EncodeTime = func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 		enc.AppendString(t.Format("2006-01-02 15:04:05.000"))
@@ -32,7 +32,6 @@ func New(ctx context.Context, name string, id string, writer *kafka.Writer) *Sha
 		ctx:       ctx,
 		name:      name,
 		id:        id,
-		writer:    writer,
 		hostName:  hostName,
 		snowFlake: snowFlake,
 	}
@@ -48,6 +47,10 @@ func New(ctx context.Context, name string, id string, writer *kafka.Writer) *Sha
 type SharkLog struct {
 	Zap    *zap.Logger
 	writer *logWriter
+}
+
+func (s *SharkLog) SetKafkaWriter(writer *kafka.Writer) {
+	s.writer.writer = writer
 }
 
 type logWriter struct {

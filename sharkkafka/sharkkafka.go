@@ -6,8 +6,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lornshark/shark/sharkfunc"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/scram"
+	"go.uber.org/zap"
 )
 
 type Config struct {
@@ -22,10 +24,11 @@ type SharkKafka struct {
 	writers map[string]*kafka.Writer
 	lock    sync.Mutex
 	dialer  *kafka.Dialer
+	logger  *zap.Logger
 }
 
 // New 创建一个新的 SharkKafka 实例，并根据提供的配置进行初始化。
-func New(ctx context.Context, config *Config) (*SharkKafka, error) {
+func New(ctx context.Context, config *Config, logger *zap.Logger) (*SharkKafka, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config required")
 	}
@@ -46,6 +49,7 @@ func New(ctx context.Context, config *Config) (*SharkKafka, error) {
 		config:  config,
 		writers: make(map[string]*kafka.Writer),
 		dialer:  dialer,
+		logger:  logger,
 	}, nil
 }
 
@@ -113,4 +117,90 @@ func (s *SharkKafka) Reader(topic string, group string) *kafka.Reader {
 		StartOffset: kafka.FirstOffset, // 从最新的消息开始消费
 	})
 	return reader
+}
+
+// BatchConsumer 批量处理消息,handler 返回false或panic停止处理,且不会提交offset
+func (s *SharkKafka) BatchConsumer(topic string, group string, handler func([]kafka.Message) bool) {
+	reader := s.Reader(topic, group)
+	batchSize := 5000
+	channel := make(chan kafka.Message, batchSize*2)
+	defer func() {
+		close(channel)
+		reader.Close()
+	}()
+	running, runningCalcel := context.WithCancel(s.ctx)
+	defer runningCalcel()
+	safeHandler := func(msgs []kafka.Message) (result bool) {
+		defer func() {
+			if r := recover(); r != nil {
+				s.logger.Error("Consumer handler panic", zap.Any("err", r))
+				result = false
+			}
+		}()
+		return handler(msgs)
+	}
+	go func() {
+		for {
+			messages := sharkfunc.DrainChannelN(running, channel, batchSize)
+			if len(messages) == 0 && running.Err() != nil {
+				return
+			}
+			result := safeHandler(messages)
+			if !result {
+				s.logger.Warn("Consumer handler returned false, stop consuming", zap.String("topic", topic), zap.String("group", group))
+				runningCalcel()
+				return
+			}
+			var commitError error
+			for i := 0; i < 5; i++ {
+				commitError = sharkfunc.WithTimeout(running, time.Second, func(ctx context.Context) error {
+					return reader.CommitMessages(ctx, messages...)
+				})
+				if commitError == nil {
+					break
+				}
+				s.logger.Warn("提交 Kafka 消息 offset 失败", zap.String("topic", reader.Config().Topic), zap.Error(commitError), zap.Int("retry", i+1))
+			}
+			if commitError != nil {
+				runningCalcel()
+				// 虽然不是panic,日志带上panic字样以便监控报警,当panic处理
+				s.logger.Error("提交 Kafka 消息 offset 失败 panic", zap.String("topic", reader.Config().Topic), zap.Error(commitError))
+				return
+			}
+			if running.Err() != nil {
+				return
+			}
+		}
+	}()
+	var fetchMessages = func(ctx context.Context) bool {
+		msg, err := reader.FetchMessage(ctx)
+		if err == nil {
+			select {
+			case channel <- msg:
+			case <-ctx.Done():
+				return false
+			}
+			return true
+		}
+		if ctx.Err() != nil {
+			return false
+		}
+		s.logger.Error("读取 Kafka 消息失败", zap.String("topic", reader.Config().Topic), zap.Error(err))
+		select {
+		case <-time.After(time.Second):
+		case <-ctx.Done():
+			return false
+		}
+		return true
+	}
+	for {
+		select {
+		case <-running.Done():
+			return
+		default:
+			if !fetchMessages(running) {
+				return
+			}
+		}
+	}
 }
