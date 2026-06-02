@@ -118,7 +118,7 @@ func (s *RpcServer) updateResolver(name string) {
 }
 
 func (s *RpcServer) redisGrpcHost(name string) string {
-	return fmt.Sprintf("%v:system:config:grpc-%v", s.project, name)
+	return fmt.Sprintf("%v:grpc:%v", s.project, name)
 }
 
 func (s *RpcServer) GetRpcConnection(name string) (*grpc.ClientConn, error) {
