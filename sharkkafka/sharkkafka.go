@@ -46,6 +46,7 @@ func New(ctx context.Context, config *Config, logger *zap.Logger) (*SharkKafka, 
 	}
 
 	return &SharkKafka{
+		ctx:     ctx,
 		config:  config,
 		writers: make(map[string]*kafka.Writer),
 		dialer:  dialer,
