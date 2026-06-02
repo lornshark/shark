@@ -1,10 +1,10 @@
 # 配置模板
-http: 3928
-grpc: 3929
-health: 3930
-pprof: 3931
-timer: true
-
+http: 3928 # http服务端口
+grpc: 3929 # grpc服务端口
+health: 3930 # 健康检查端口
+pprof: 3931 # pprof端口
+timer: true # 是否启用定时器
+# kafka,redis,db,rabbitmq,risingwave,elastic,mongodb,minio等配置项请参考下面的示例
 kafka:
   host: 192.168.191.100
   port: 9092

@@ -129,7 +129,6 @@ func (c *Client) connect(index int, wg *sync.WaitGroup) {
 			time.Sleep(time.Second)
 			continue
 		}
-
 		c.set_conn(conn)
 		c.set_channel(channel)
 		if count > 0 {
