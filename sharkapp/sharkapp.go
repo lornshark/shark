@@ -123,7 +123,7 @@ func New(options *Options) (*App, error) {
 		app.sharklog.SetKafkaWriter(kafkaLogWriter)
 	}
 	if options.kafka != nil {
-		app.Logger.Info("连接kafka成功", zap.String("host", options.kafka.Host))
+		app.Logger.Info("连接kafka成功", zap.String("host", options.kafka.Host), zap.Int("port", options.kafka.Port))
 	}
 	if options.redis != nil {
 		redis, err := sharkredis.New(app.Context, options.redis)

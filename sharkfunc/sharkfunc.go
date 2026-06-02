@@ -75,20 +75,35 @@ func ParallelCall(funcs ...func()) error {
 	return nil
 }
 
-// 从channel中读取数据,直到channel关闭或者读取到指定数量的数据
-func DrainChannelN[T any](ctx context.Context, ch <-chan T, size int) []T {
+// 从channel中读取数据,读取到指定条数的数据,channel关闭了,context超时了,channel 没有数据 返回
+// timer 用于控制没有数据时的超时,避免一直阻塞
+func DrainChannelN[T any](ctx context.Context, ch <-chan T, size int, timer *time.Timer) []T {
 	var result []T = make([]T, 0, size)
 	if ch == nil || size <= 0 {
 		return result
 	}
+	// 先阻塞拿第一个
+	select {
+	case <-ctx.Done():
+		return result
+	case v, ok := <-ch:
+		if !ok {
+			return result
+		}
+		result = append(result, v)
+	}
+	// 再尽量多拿一些,不阻塞了
 	for len(result) < size {
 		select {
-		case item, ok := <-ch:
+		case <-ctx.Done():
+			return result
+		case v, ok := <-ch:
 			if !ok {
 				return result
 			}
-			result = append(result, item)
-		case <-ctx.Done():
+			result = append(result, v)
+		case <-timer.C:
+			// 没有更多数据了
 			return result
 		}
 	}

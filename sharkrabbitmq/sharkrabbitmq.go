@@ -271,8 +271,16 @@ func (c *Client) BatchConsume(exchange string, queue string, key string, handler
 				}()
 				return handler(msgs)
 			}
+			timer := time.NewTimer(time.Millisecond * 10)
+			defer timer.Stop()
 			for {
-				messages := sharkfunc.DrainChannelN(ctx, dataChannel, 5000)
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				messages := sharkfunc.DrainChannelN(ctx, dataChannel, 5000, timer)
 				if len(messages) == 0 && ctx.Err() != nil {
 					cancel()
 					break

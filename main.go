@@ -1,7 +1,10 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/lornshark/shark/sharkapp"
+	"github.com/segmentio/kafka-go"
 )
 
 // @title game-demo API
@@ -24,11 +27,6 @@ type TestComponent struct {
 }
 
 func (t *TestComponent) Init() {
-	println("test component init")
-}
-
-func (t *TestComponent) Start() {
-	println("test component start")
 }
 
 func NewTestComponent(app *sharkapp.App) *TestComponent {
@@ -42,4 +40,17 @@ func main() {
 		panic(err)
 	}
 	app.Hunt(NewTestComponent(app))
+}
+
+func (t *TestComponent) Start() {
+	topic := "kgame_game_log"
+	group := "kgame.game-log"
+	go t.app.Kafka.BatchConsumer(topic, group, t.handleMessage)
+}
+
+func (t *TestComponent) handleMessage(msg []kafka.Message) bool {
+	for _, m := range msg {
+		fmt.Printf("message at topic:%v partition:%v offset:%v key:%v value:%v\n", m.Topic, m.Partition, m.Offset, string(m.Key), string(m.Value))
+	}
+	return true
 }

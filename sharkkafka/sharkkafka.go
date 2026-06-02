@@ -141,8 +141,17 @@ func (s *SharkKafka) BatchConsumer(topic string, group string, handler func([]ka
 		return handler(msgs)
 	}
 	go func() {
+		timer := time.NewTimer(time.Millisecond * 10)
+		defer timer.Stop()
 		for {
-			messages := sharkfunc.DrainChannelN(running, channel, batchSize)
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(time.Millisecond * 10)
+			messages := sharkfunc.DrainChannelN(running, channel, batchSize, timer)
 			if len(messages) == 0 && running.Err() != nil {
 				return
 			}
