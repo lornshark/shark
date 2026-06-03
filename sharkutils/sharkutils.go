@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // RandNum 生成[min,max)之间的随机数
@@ -35,4 +37,16 @@ func GetClientIp(request *http.Request) string {
 		ip = strings.Split(ip, ",")[0]
 	}
 	return ip
+}
+
+// bcrypt加密密码
+func BcryptHash(password string) string {
+	bytes, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(bytes)
+}
+
+// bcrypt验证密码
+func BcryptCheck(hash string, password string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
 }
