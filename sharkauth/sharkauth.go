@@ -190,3 +190,25 @@ func Permissions(nodes []*AuthNode) map[string][]string {
 	dfs(nodes, []string{})
 	return res
 }
+
+// Flatten 将权限树扁平化
+func Flatten(nodes []*AuthNode) map[string]any {
+	res := make(map[string]any)
+	var dfs func(node *AuthNode, path string)
+	dfs = func(node *AuthNode, path string) {
+		cur := node.Name
+		if path != "" {
+			cur = path + "." + node.Name
+		}
+		if node.Auth == 1 {
+			res[cur] = 1
+		}
+		for _, child := range node.Children {
+			dfs(child, cur)
+		}
+	}
+	for _, n := range nodes {
+		dfs(n, "")
+	}
+	return res
+}
