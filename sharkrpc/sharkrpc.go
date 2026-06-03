@@ -133,6 +133,7 @@ func (s *RpcServer) GetRpcConnection(name string) (*grpc.ClientConn, error) {
 		if ok {
 			c := v.(*connection)
 			if time.Now().Unix()-c.timestamp.Load() >= 5 {
+				c.timestamp.Store(time.Now().Unix())
 				if c.resolving.CompareAndSwap(false, true) {
 					go s.updateResolver(name)
 				}
