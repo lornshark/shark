@@ -4,6 +4,9 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	crand "math/rand/v2"
+	"net"
+	"net/http"
+	"strings"
 )
 
 // RandNum 生成[min,max)之间的随机数
@@ -18,4 +21,18 @@ func RandNum(min int, max int) int {
 func Md5(data []byte) string {
 	h := md5.New()
 	return hex.EncodeToString(h.Sum(data))
+}
+
+// GetClientIp 获取客户端 IP 地址
+func GetClientIp(request *http.Request) string {
+	ip := request.Header.Get("X-Forwarded-For")
+	if ip == "" {
+		ip = request.Header.Get("X-Real-Ip")
+	}
+	if ip == "" {
+		ip, _, _ = net.SplitHostPort(request.RemoteAddr)
+	} else {
+		ip = strings.Split(ip, ",")[0]
+	}
+	return ip
 }
