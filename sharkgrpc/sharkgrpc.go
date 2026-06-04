@@ -1,4 +1,4 @@
-package sharkrpc
+package sharkgrpc
 
 import (
 	"context"
@@ -26,11 +26,9 @@ import (
 var connections sync.Map
 
 type connection struct {
-	conn      *grpc.ClientConn
-	resolver  *manual.Resolver
-	timestamp atomic.Int64
-	resolving atomic.Bool
-	addrs     atomic.Value
+	conn     *grpc.ClientConn
+	resolver *manual.Resolver
+	addrs    atomic.Value
 }
 
 type RpcServer struct {
@@ -73,48 +71,52 @@ func (s *RpcServer) updateResolver(name string) {
 		return
 	}
 	c := v.(*connection)
-	defer c.resolving.Store(false)
-	defer c.timestamp.Store(time.Now().Unix())
-	addr, err := s.redis.Get(s.ctx, s.redisGrpcHost(name)).Result()
-	if err != nil {
-		return
-	}
-	addr = strings.TrimSpace(addr)
-	if addr == "" {
-		return
-	}
-	addrs := []string{}
-	err = json.Unmarshal([]byte(addr), &addrs)
-	if err != nil {
-		return
-	}
-	if len(addrs) == 0 {
-		return
-	}
-	var oldAddrs []string
-	if v := c.addrs.Load(); v != nil {
-		oldAddrs = append([]string(nil), v.([]string)...)
-	}
-	sort.Strings(addrs)
-	sort.Strings(oldAddrs)
-	if len(addrs) == len(oldAddrs) {
-		same := true
-		for i := range addrs {
-			if addrs[i] != oldAddrs[i] {
-				same = false
-				break
+	for {
+		time.Sleep(5 * time.Second)
+		addr, err := s.redis.Get(s.ctx, s.redisGrpcHost(name)).Result()
+		if err != nil {
+			s.logger.Error("failed to get grpc address from redis", zap.String("name", name), zap.Error(err))
+			continue
+		}
+		addr = strings.TrimSpace(addr)
+		if addr == "" {
+			s.logger.Warn("grpc address is empty", zap.String("name", name))
+			continue
+		}
+		addrs := []string{}
+		err = json.Unmarshal([]byte(addr), &addrs)
+		if err != nil {
+			s.logger.Error("failed to unmarshal grpc address", zap.String("name", name), zap.String("addr", addr), zap.Error(err))
+			continue
+		}
+		if len(addrs) == 0 {
+			s.logger.Warn("grpc address is empty", zap.String("name", name))
+		}
+		var oldAddrs []string
+		if v := c.addrs.Load(); v != nil {
+			oldAddrs = append([]string(nil), v.([]string)...)
+		}
+		sort.Strings(addrs)
+		sort.Strings(oldAddrs)
+		if len(addrs) == len(oldAddrs) {
+			same := true
+			for i := range addrs {
+				if addrs[i] != oldAddrs[i] {
+					same = false
+					break
+				}
+			}
+			if same {
+				continue
 			}
 		}
-		if same {
-			return
+		var resolverAddrs []resolver.Address = make([]resolver.Address, 0, len(addrs))
+		for _, addr := range addrs {
+			resolverAddrs = append(resolverAddrs, resolver.Address{Addr: addr})
 		}
+		c.resolver.UpdateState(resolver.State{Addresses: resolverAddrs})
+		c.addrs.Store(append([]string{}, addrs...))
 	}
-	var resolverAddrs []resolver.Address = make([]resolver.Address, 0, len(addrs))
-	for _, addr := range addrs {
-		resolverAddrs = append(resolverAddrs, resolver.Address{Addr: addr})
-	}
-	c.resolver.UpdateState(resolver.State{Addresses: resolverAddrs})
-	c.addrs.Store(append([]string{}, addrs...))
 }
 
 func (s *RpcServer) redisGrpcHost(name string) string {
@@ -128,13 +130,7 @@ func (s *RpcServer) GetRpcConnection(name string) (*grpc.ClientConn, error) {
 	conn, err, _ := s.sg.Do("grpc-conn-"+name, func() (any, error) {
 		v, ok := connections.Load(name)
 		if ok {
-			c := v.(*connection)
-			if time.Now().Unix()-c.timestamp.Load() >= 5 {
-				if c.resolving.CompareAndSwap(false, true) {
-					go s.updateResolver(name)
-				}
-			}
-			return c.conn, nil
+			return v.(*connection), nil
 		} else {
 			addr, err := s.redis.Get(s.ctx, s.redisGrpcHost(name)).Result()
 			if err != nil && err != redis.Nil {
@@ -158,7 +154,6 @@ func (s *RpcServer) GetRpcConnection(name string) (*grpc.ClientConn, error) {
 				resolver: manual.NewBuilderWithScheme("custom"),
 			}
 			c.addrs.Store(append([]string{}, addrs...))
-			c.timestamp.Store(time.Now().Unix())
 			var resolverAddrs []resolver.Address = make([]resolver.Address, 0, len(addrs))
 			for _, addr := range addrs {
 				resolverAddrs = append(resolverAddrs, resolver.Address{Addr: addr})
@@ -195,6 +190,7 @@ func (s *RpcServer) GetRpcConnection(name string) (*grpc.ClientConn, error) {
 			)
 			c.conn = conn
 			connections.Store(name, c)
+			go s.updateResolver(name)
 			return conn, err
 		}
 	})

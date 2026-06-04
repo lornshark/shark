@@ -16,6 +16,7 @@ import (
 	"github.com/howeyc/crc16"
 	"github.com/lornshark/shark/sharkdb"
 	"github.com/lornshark/shark/sharkelastic"
+	"github.com/lornshark/shark/sharkgrpc"
 	"github.com/lornshark/shark/sharkhttp"
 	"github.com/lornshark/shark/sharkkafka"
 	"github.com/lornshark/shark/sharkminio"
@@ -25,7 +26,6 @@ import (
 	"github.com/lornshark/shark/sharkrisingwave"
 
 	"github.com/lornshark/shark/sharklog"
-	"github.com/lornshark/shark/sharkrpc"
 	"github.com/lornshark/shark/sharktimer"
 
 	"github.com/minio/minio-go/v7"
@@ -82,7 +82,7 @@ type App struct {
 	Project string
 	// 基础组件
 	Db         *gorm.DB
-	Grpc       *sharkrpc.RpcServer
+	Grpc       *sharkgrpc.RpcServer
 	Minio      *minio.Client
 	Timer      *sharktimer.Timer
 	Kafka      *sharkkafka.SharkKafka
@@ -200,7 +200,7 @@ func New(options *Options) (*App, error) {
 	}
 	if options.grpc > 0 {
 		if app.Redis != nil {
-			server := sharkrpc.New(app.Context, app.Project, app.Redis, app.Logger, options.grpc)
+			server := sharkgrpc.New(app.Context, app.Project, app.Redis, app.Logger, options.grpc)
 			app.Logger.Info("开启rpc服务", zap.Int("port", options.grpc))
 			app.Grpc = server
 		} else {
