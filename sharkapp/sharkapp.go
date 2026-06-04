@@ -198,13 +198,17 @@ func New(options *Options) (*App, error) {
 			app.Logger.Error("初始化timer失败, 依赖redis, 请确保已正确配置redis连接")
 		}
 	}
-	if options.grpc > 0 {
-		if app.Redis != nil {
+	if options.grpc > 0 && app.Redis == nil {
+		app.Logger.Error("开启rpc服务失败, 依赖redis, 请确保已正确配置redis连接")
+	}
+	if app.Redis != nil {
+		if options.grpc > 0 {
 			server := sharkgrpc.New(app.Context, app.Project, app.Redis, app.Logger, options.grpc)
 			app.Logger.Info("开启rpc服务", zap.Int("port", options.grpc))
 			app.Grpc = server
 		} else {
-			app.Logger.Error("开启rpc服务失败, 依赖redis, 请确保已正确配置redis连接")
+			server := sharkgrpc.New(app.Context, app.Project, app.Redis, app.Logger, -1)
+			app.Grpc = server
 		}
 	}
 	if options.http > 0 {
@@ -247,15 +251,11 @@ func (a *App) health_service(port int) {
 }
 
 type AppComponent interface {
-	Init()
 	Start()
 }
 
 func (a *App) Hunt(components ...AppComponent) {
 	time.Sleep(time.Millisecond * 100)
-	for _, c := range components {
-		c.Init()
-	}
 	for _, c := range components {
 		c.Start()
 	}

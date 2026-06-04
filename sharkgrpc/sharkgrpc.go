@@ -43,13 +43,16 @@ type RpcServer struct {
 
 func New(ctx context.Context, project string, redis *redis.ClusterClient, logger *zap.Logger, port int) *RpcServer {
 	s := &RpcServer{
-		ctx:    ctx,
-		Server: grpc.NewServer(),
-		logger: logger,
-		redis:  redis,
-		port:   port,
+		ctx:     ctx,
+		logger:  logger,
+		redis:   redis,
+		port:    port,
+		project: project,
 	}
-	go s.run()
+	if port > 0 {
+		s.Server = grpc.NewServer()
+		go s.run()
+	}
 	return s
 }
 
