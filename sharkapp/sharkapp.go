@@ -251,15 +251,11 @@ func (a *App) health_service(port int) {
 }
 
 type AppComponent interface {
-	Init()
 	Start()
 }
 
 func (a *App) Hunt(components ...AppComponent) {
 	time.Sleep(time.Millisecond * 100)
-	for _, c := range components {
-		c.Init()
-	}
 	for _, c := range components {
 		c.Start()
 	}
