@@ -79,6 +79,30 @@ func IsNotNull(column string) string {
 	return column + " IS NOT NULL"
 }
 
+// 字段加
+// 例如：Add("bet_amount", 100) -> "bet_amount + ?", 100
+func Add(column string, value any) (string, any) {
+	return column + " + ?", value
+}
+
+// 字段减
+// 例如：Sub("bet_amount", 100) -> "bet_amount - ?", 100
+func Sub(column string, value any) (string, any) {
+	return column + " - ?", value
+}
+
+// 字段乘
+// 例如：Mul("bet_amount", 2) -> "bet_amount * ?", 2
+func Mul(column string, value any) (string, any) {
+	return column + " * ?", value
+}
+
+// 字段除
+// 例如：Div("bet_amount", 2) -> "bet_amount / ?", 2
+func Div(column string, value any) (string, any) {
+	return column + " / ?", value
+}
+
 // asc
 // 例如：Asc("created_at") -> "created_at ASC"
 func Asc(column string) string {
