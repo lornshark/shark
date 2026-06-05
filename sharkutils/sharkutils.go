@@ -45,8 +45,8 @@ func BcryptHash(password string) string {
 	return string(bytes)
 }
 
-// bcrypt验证密码 password: 明文密码 bcryptHash: bcrypt加密后的密码
-func BcryptCheck(password string, bcryptHash string) bool {
+// bcrypt验证密码 bcryptHash: bcrypt加密后的密码 password: 明文密码
+func BcryptCheck(bcryptHash string, password string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(bcryptHash), []byte(password))
 	return err == nil
 }
