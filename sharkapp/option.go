@@ -23,6 +23,7 @@ type Options struct {
 	timer         bool
 	pprof         int
 	kafka         *sharkkafka.Config
+	redis         *sharkredis.Config
 	redis_cluster *sharkredis.Config
 	redis_client  *sharkredis.Config
 	elastic       *sharkelastic.Config
@@ -75,6 +76,13 @@ func NewOption(project string, name string) *Options {
 			Host:     strings.TrimSpace(v.GetString("redis_client.host")),
 			Port:     v.GetInt("redis_client.port"),
 			Password: strings.TrimSpace(v.GetString("redis_client.password")),
+		}
+	}
+	if strings.TrimSpace(v.GetString("redis.host")) != "" {
+		options.redis = &sharkredis.Config{
+			Host:     strings.TrimSpace(v.GetString("redis.host")),
+			Port:     v.GetInt("redis.port"),
+			Password: strings.TrimSpace(v.GetString("redis.password")),
 		}
 	}
 	if strings.TrimSpace(v.GetString("db.host")) != "" {

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/lornshark/shark/sharkapp"
 )
 
@@ -27,6 +25,12 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("ss", app.Grpc)
+	if app.RedisClient != nil {
+		app.Logger.Info("redis client")
+	} else if app.RedisCluster != nil {
+		app.Logger.Info("redis cluster")
+	} else {
+		app.Logger.Info("no redis")
+	}
 	app.Hunt()
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -126,7 +127,28 @@ func New(options *Options) (*App, error) {
 	if options.kafka != nil {
 		app.Logger.Info("连接kafka成功", zap.String("host", options.kafka.Host), zap.Int("port", options.kafka.Port))
 	}
-	if options.redis_cluster != nil {
+	if options.redis != nil {
+		cluster, err := sharkredis.NewCluster(app.Context, options.redis)
+		if err == nil {
+			app.RedisCluster = cluster
+			app.Logger.Info("连接redis cluster成功", zap.String("host", options.redis.Host), zap.Int("port", options.redis.Port))
+		} else {
+			if strings.Contains(err.Error(), "cluster support disabled") {
+				client, err := sharkredis.NewClient(app.Context, options.redis)
+				if err != nil {
+					app.Logger.Error("连接redis client失败", zap.String("host", options.redis.Host), zap.Int("port", options.redis.Port), zap.Error(err))
+					return nil, err
+				}
+				app.RedisClient = client
+				app.Logger.Info("连接redis client成功", zap.String("host", options.redis.Host), zap.Int("port", options.redis.Port))
+			} else {
+				app.Logger.Error("连接redis cluster失败", zap.String("host", options.redis.Host), zap.Int("port", options.redis.Port), zap.Error(err))
+				return nil, err
+			}
+		}
+	}
+
+	if options.redis_cluster != nil && app.RedisCluster == nil {
 		redis, err := sharkredis.NewCluster(app.Context, options.redis_cluster)
 		if err != nil {
 			app.Logger.Error("连接redis cluster失败", zap.String("host", options.redis_cluster.Host), zap.Int("port", options.redis_cluster.Port), zap.Error(err))
@@ -135,7 +157,7 @@ func New(options *Options) (*App, error) {
 		app.Logger.Info("连接redis cluster成功", zap.String("host", options.redis_cluster.Host), zap.Int("port", options.redis_cluster.Port))
 		app.RedisCluster = redis
 	}
-	if options.redis_client != nil {
+	if options.redis_client != nil && app.RedisClient == nil {
 		redis, err := sharkredis.NewClient(app.Context, options.redis_client)
 		if err != nil {
 			app.Logger.Error("连接redis client失败", zap.String("host", options.redis_client.Host), zap.Int("port", options.redis_client.Port), zap.Error(err))
