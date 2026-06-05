@@ -138,7 +138,7 @@ func (s *RpcServer) GetRpcConnection(name string) (*grpc.ClientConn, error) {
 	conn, err, _ := s.sg.Do("grpc-conn-"+name, func() (any, error) {
 		v, ok := connections.Load(name)
 		if ok {
-			return v.(*connection), nil
+			return v.(*connection).conn, nil
 		} else {
 			addr, err := s.redis.Get(s.ctx, s.redisGrpcHost(name)).Result()
 			if err != nil && err != redis.Nil {
