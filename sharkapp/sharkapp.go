@@ -81,18 +81,19 @@ type App struct {
 	Name    string
 	Project string
 	// 基础组件
-	Db         *gorm.DB
-	Grpc       *sharkgrpc.RpcServer
-	Minio      *minio.Client
-	Timer      *sharktimer.Timer
-	Kafka      *sharkkafka.SharkKafka
-	Redis      *redis.ClusterClient
-	Logger     *zap.Logger
-	Elastic    *elastic.Client
-	Mongodb    *mongo.Client
-	Rabbitmq   *sharkrabbitmq.Client
-	RisingWave *gorm.DB
-	GinEngine  *gin.Engine
+	Db           *gorm.DB
+	Grpc         *sharkgrpc.RpcServer
+	Minio        *minio.Client
+	Timer        *sharktimer.Timer
+	Kafka        *sharkkafka.SharkKafka
+	RedisCluster *redis.ClusterClient
+	RedisClient  *redis.Client
+	Logger       *zap.Logger
+	Elastic      *elastic.Client
+	Mongodb      *mongo.Client
+	Rabbitmq     *sharkrabbitmq.Client
+	RisingWave   *gorm.DB
+	GinEngine    *gin.Engine
 	// 内部组件
 	cancelFunc context.CancelFunc
 	sharklog   *sharklog.SharkLog
@@ -125,14 +126,23 @@ func New(options *Options) (*App, error) {
 	if options.kafka != nil {
 		app.Logger.Info("连接kafka成功", zap.String("host", options.kafka.Host), zap.Int("port", options.kafka.Port))
 	}
-	if options.redis != nil {
-		redis, err := sharkredis.New(app.Context, options.redis)
+	if options.redis_cluster != nil {
+		redis, err := sharkredis.NewCluster(app.Context, options.redis_cluster)
 		if err != nil {
-			app.Logger.Error("连接redis失败", zap.String("host", options.redis.Host), zap.Int("port", options.redis.Port), zap.Error(err))
+			app.Logger.Error("连接redis cluster失败", zap.String("host", options.redis_cluster.Host), zap.Int("port", options.redis_cluster.Port), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接redis成功", zap.String("host", options.redis.Host), zap.Int("port", options.redis.Port))
-		app.Redis = redis
+		app.Logger.Info("连接redis cluster成功", zap.String("host", options.redis_cluster.Host), zap.Int("port", options.redis_cluster.Port))
+		app.RedisCluster = redis
+	}
+	if options.redis_client != nil {
+		redis, err := sharkredis.NewClient(app.Context, options.redis_client)
+		if err != nil {
+			app.Logger.Error("连接redis client失败", zap.String("host", options.redis_client.Host), zap.Int("port", options.redis_client.Port), zap.Error(err))
+			return nil, err
+		}
+		app.Logger.Info("连接redis client成功", zap.String("host", options.redis_client.Host), zap.Int("port", options.redis_client.Port))
+		app.RedisClient = redis
 	}
 	if options.db != nil {
 		db, err := sharkdb.NewDb(app.Context, app.Logger, options.db)
@@ -191,23 +201,34 @@ func New(options *Options) (*App, error) {
 		app.Minio = client
 	}
 	if options.timer {
-		if app.Redis != nil {
-			app.Timer = sharktimer.NewTimer(app.Context, app.Project, app.Name, app.Id, app.Redis)
+		if app.RedisCluster != nil {
+			app.Timer = sharktimer.NewTimer(app.Context, app.Project, app.Name, app.Id, app.RedisCluster)
+			app.Logger.Info("初始化timer成功")
+		} else if app.RedisClient != nil {
+			app.Timer = sharktimer.NewTimer(app.Context, app.Project, app.Name, app.Id, app.RedisClient)
 			app.Logger.Info("初始化timer成功")
 		} else {
 			app.Logger.Error("初始化timer失败, 依赖redis, 请确保已正确配置redis连接")
 		}
 	}
-	if options.grpc > 0 && app.Redis == nil {
-		app.Logger.Error("开启rpc服务失败, 依赖redis, 请确保已正确配置redis连接")
-	}
-	if app.Redis != nil {
-		if options.grpc > 0 {
-			server := sharkgrpc.New(app.Context, app.Project, app.Redis, app.Logger, options.grpc)
+	if options.grpc > 0 {
+		if app.RedisCluster != nil {
+			server := sharkgrpc.New(app.Context, app.Project, app.RedisCluster, app.Logger, options.grpc)
+			app.Logger.Info("开启rpc服务", zap.Int("port", options.grpc))
+			app.Grpc = server
+		} else if app.RedisClient != nil {
+			server := sharkgrpc.New(app.Context, app.Project, app.RedisClient, app.Logger, options.grpc)
 			app.Logger.Info("开启rpc服务", zap.Int("port", options.grpc))
 			app.Grpc = server
 		} else {
-			server := sharkgrpc.New(app.Context, app.Project, app.Redis, app.Logger, -1)
+			app.Logger.Error("开启rpc服务失败, 依赖redis, 请确保已正确配置redis连接")
+		}
+	} else {
+		if app.RedisCluster != nil {
+			server := sharkgrpc.New(app.Context, app.Project, app.RedisCluster, app.Logger, -1)
+			app.Grpc = server
+		} else if app.RedisClient != nil {
+			server := sharkgrpc.New(app.Context, app.Project, app.RedisClient, app.Logger, -1)
 			app.Grpc = server
 		}
 	}

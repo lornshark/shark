@@ -25,6 +25,11 @@ import (
 
 var connections sync.Map
 
+type RpcRedis interface {
+	Get(ctx context.Context, key string) *redis.StringCmd
+	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd
+}
+
 type connection struct {
 	conn     *grpc.ClientConn
 	resolver *manual.Resolver
@@ -35,13 +40,13 @@ type RpcServer struct {
 	ctx     context.Context
 	Server  *grpc.Server
 	logger  *zap.Logger
-	redis   *redis.ClusterClient
+	redis   RpcRedis
 	port    int
 	sg      singleflight.Group
 	project string
 }
 
-func New(ctx context.Context, project string, redis *redis.ClusterClient, logger *zap.Logger, port int) *RpcServer {
+func New(ctx context.Context, project string, redis RpcRedis, logger *zap.Logger, port int) *RpcServer {
 	s := &RpcServer{
 		ctx:     ctx,
 		logger:  logger,

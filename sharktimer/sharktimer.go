@@ -15,18 +15,24 @@ import (
 
 // 轻量级,单机定时器,不重试,定时器误差1s
 
+type TimerRedis interface {
+	ZRangeByScoreWithScores(ctx context.Context, key string, opt *redis.ZRangeBy) *redis.ZSliceCmd
+	ZRem(ctx context.Context, key string, members ...interface{}) *redis.IntCmd
+	ZAdd(ctx context.Context, key string, members ...redis.Z) *redis.IntCmd
+}
+
 type Timer struct {
 	ctx             context.Context
 	timerCallback   sync.Map
 	timerKey        string
 	snowFlake       *sharksnowflake.Snowflake
 	pool            *ants.Pool
-	redis           *redis.ClusterClient
+	redis           TimerRedis
 	defaultCallback func(timerId string)
 }
 
 // NewTimer 创建一个新的 Timer 实例，并根据提供的配置进行初始化。
-func NewTimer(ctx context.Context, project string, name string, id string, redis *redis.ClusterClient) *Timer {
+func NewTimer(ctx context.Context, project string, name string, id string, redis TimerRedis) *Timer {
 	pool, _ := ants.NewPool(10)
 	t := &Timer{
 		ctx:           ctx,

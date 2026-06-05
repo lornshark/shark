@@ -12,8 +12,13 @@ kafka:
   user:
   password:
 
-redis:
+redis_cluster:
   host: 192.168.191.100
+  port: 6379
+  password: CEki57pxTJyYaLD
+
+redis_client:
+  host: ""
   port: 6379
   password: CEki57pxTJyYaLD
 
