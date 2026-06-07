@@ -5,7 +5,13 @@ import (
 	"strings"
 
 	"github.com/spf13/cast"
+	"gorm.io/gorm"
 )
+
+type Pagination struct {
+	Page     int `json:"page"`
+	PageSize int `json:"page_size"`
+}
 
 // ==
 // 例如：Eq("status", 1) -> "status = ?", 1
@@ -249,4 +255,26 @@ func MinAs(columns ...string) string {
 	}
 	sql = strings.TrimSuffix(sql, ", ")
 	return sql
+}
+
+// 分页查询 PageQuery 根据页码和每页条数查询数据,并返回总记录数
+func PageQuery[T any](db *gorm.DB, page int, pageSize int) ([]T, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 10 {
+		pageSize = 10
+	}
+	if page*pageSize > 10000 {
+		return nil, 0, fmt.Errorf("offset cannot exceed 10000")
+	}
+	var total int64
+	err := db.Session(&gorm.Session{}).Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	offset := (page - 1) * pageSize
+	var results []T
+	err = db.Offset(offset).Limit(pageSize).Find(&results).Error
+	return results, total, err
 }
