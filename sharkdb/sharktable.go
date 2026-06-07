@@ -108,7 +108,14 @@ func (t *SharkTable) Le(column string, value any) *SharkTable {
 // Like 添加模糊匹配条件，value 为空时不添加条件
 func (t *SharkTable) Like(column string, value any) *SharkTable {
 	if !t.isEmpty(value) {
-		t.db = t.db.Where(column+" LIKE ?", "%"+fmt.Sprint(value)+"%")
+		v := reflect.ValueOf(value)
+		if v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				return t
+			}
+			value = v.Elem().Interface()
+		}
+		t.db = t.db.Where(column+" LIKE ?", fmt.Sprintf("%%%v%%", value))
 	}
 	return t
 }
@@ -116,7 +123,14 @@ func (t *SharkTable) Like(column string, value any) *SharkTable {
 // NotLike 添加模糊不匹配条件，value 为空时不添加条件
 func (t *SharkTable) NotLike(column string, value any) *SharkTable {
 	if !t.isEmpty(value) {
-		t.db = t.db.Where(column+" NOT LIKE ?", "%"+fmt.Sprint(value)+"%")
+		v := reflect.ValueOf(value)
+		if v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				return t
+			}
+			value = v.Elem().Interface()
+		}
+		t.db = t.db.Where(column+" NOT LIKE ?", fmt.Sprintf("%%%v%%", value))
 	}
 	return t
 }
