@@ -32,7 +32,7 @@ func (t *Builder) isEmpty(v any) bool {
 			return true
 		}
 		return t.isEmpty(rv.Elem().Interface())
-	case reflect.Slice, reflect.Array, reflect.Map, reflect.String:
+	case reflect.Slice, reflect.Map:
 		return rv.Len() == 0
 	}
 	return false
