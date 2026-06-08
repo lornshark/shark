@@ -25,12 +25,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	if app.RedisClient != nil {
-		app.Logger.Info("redis client")
-	} else if app.RedisCluster != nil {
-		app.Logger.Info("redis cluster")
-	} else {
-		app.Logger.Info("no redis")
-	}
+
 	app.Hunt()
 }
