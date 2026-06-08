@@ -197,11 +197,30 @@ func (t *SharkTable) Group(columns ...string) *SharkTable {
 	return t
 }
 
-// Where 添加自定义条件
-func (t *SharkTable) Where(builder *sharksql.Builder) *SharkTable {
-	if builder == nil {
-		sql, args := builder.Build()
-		t.db = t.db.Where(sql, args...)
+// Or 添加 OR 条件，builder 为空时不添加条件
+func (t *SharkTable) Or(builder ...*sharksql.Builder) *SharkTable {
+	if len(builder) == 0 {
+		return t
 	}
+	var orSQL []string
+	var args []any
+	for _, b := range builder {
+		if b == nil {
+			continue
+		}
+		sql, a := b.Build()
+		if sql == "" {
+			continue
+		}
+		orSQL = append(orSQL, sql)
+		args = append(args, a...)
+	}
+	if len(orSQL) == 0 {
+		return t
+	}
+	t.db = t.db.Where(
+		"("+strings.Join(orSQL, " OR ")+")",
+		args...,
+	)
 	return t
 }
