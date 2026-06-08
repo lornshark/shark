@@ -3,8 +3,6 @@ package sharksql
 import (
 	"fmt"
 	"strings"
-
-	"github.com/spf13/cast"
 )
 
 // ==
@@ -46,13 +44,13 @@ func Lte(column string, value any) (string, any) {
 // LIKE
 // 例如：Like("name", "John") -> "name LIKE ?", "%John%"
 func Like(column string, value any) (string, any) {
-	return column + " LIKE ?", "%" + cast.ToString(value) + "%"
+	return column + " LIKE ?", "%" + fmt.Sprint(value) + "%"
 }
 
 // NOT LIKE
 // 例如：NotLike("name", "John") -> "name NOT LIKE ?", "%John%"
 func NotLike(column string, value any) (string, any) {
-	return column + " NOT LIKE ?", "%" + cast.ToString(value) + "%"
+	return column + " NOT LIKE ?", "%" + fmt.Sprint(value) + "%"
 }
 
 // IN

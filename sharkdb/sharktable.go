@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/lornshark/shark/sharksql"
 	"gorm.io/gorm"
 )
 
@@ -179,5 +180,14 @@ func (t *SharkTable) Group(columns ...string) *SharkTable {
 		return t
 	}
 	t.db = t.db.Group(strings.Join(columns, ", "))
+	return t
+}
+
+// Where 添加自定义条件
+func (t *SharkTable) Where(builder *sharksql.Builder) *SharkTable {
+	if builder == nil {
+		sql, args := builder.Build()
+		t.db = t.db.Where(sql, args...)
+	}
 	return t
 }
