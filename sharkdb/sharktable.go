@@ -218,9 +218,10 @@ func (t *SharkTable) Or(builder ...*sharksql.Builder) *SharkTable {
 	if len(orSQL) == 0 {
 		return t
 	}
-	t.db = t.db.Where(
-		"("+strings.Join(orSQL, " OR ")+")",
-		args...,
-	)
+	s := strings.Join(orSQL, " OR ")
+	if len(builder) > 1 {
+		s = "(" + s + ")"
+	}
+	t.db = t.db.Where(s, args...)
 	return t
 }

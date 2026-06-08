@@ -199,9 +199,13 @@ func (b *Builder) Build() (string, []any) {
 		if !first {
 			sb.WriteString(" OR ")
 		}
-		sb.WriteString("(")
+		if len(group.conditions) > 1 {
+			sb.WriteString("(")
+		}
 		sb.WriteString(strings.Join(group.conditions, " AND "))
-		sb.WriteString(")")
+		if len(group.conditions) > 1 {
+			sb.WriteString(")")
+		}
 		args = append(args, group.args...)
 		first = false
 	}
