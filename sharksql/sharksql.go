@@ -3,7 +3,14 @@ package sharksql
 import (
 	"fmt"
 	"strings"
+
+	"gorm.io/gorm"
 )
+
+type Pagination struct {
+	Page     int `json:"page"`
+	PageSize int `json:"page_size"`
+}
 
 // ==
 // 例如：Eq("status", 1) -> "status = ?", 1
@@ -75,6 +82,30 @@ func IsNull(column string) string {
 // 例如：IsNotNull("deleted_at") -> "deleted_at IS NOT NULL"
 func IsNotNull(column string) string {
 	return column + " IS NOT NULL"
+}
+
+// 字段加
+// 例如：Add("bet_amount", 100) -> "bet_amount + ?", 100
+func Add(column string, value any) (string, any) {
+	return column + " + ?", value
+}
+
+// 字段减
+// 例如：Sub("bet_amount", 100) -> "bet_amount - ?", 100
+func Sub(column string, value any) (string, any) {
+	return column + " - ?", value
+}
+
+// 字段乘
+// 例如：Mul("bet_amount", 2) -> "bet_amount * ?", 2
+func Mul(column string, value any) (string, any) {
+	return column + " * ?", value
+}
+
+// 字段除
+// 例如：Div("bet_amount", 2) -> "bet_amount / ?", 2
+func Div(column string, value any) (string, any) {
+	return column + " / ?", value
 }
 
 // asc
@@ -223,4 +254,26 @@ func MinAs(columns ...string) string {
 	}
 	sql = strings.TrimSuffix(sql, ", ")
 	return sql
+}
+
+// 分页查询 PageQuery 根据页码和每页条数查询数据,并返回总记录数
+func PageQuery[T any](db *gorm.DB, page int, pageSize int) ([]T, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 10 {
+		pageSize = 10
+	}
+	if page*pageSize > 10000 {
+		return nil, 0, fmt.Errorf("offset cannot exceed 10000")
+	}
+	var total int64
+	err := db.Session(&gorm.Session{}).Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	offset := (page - 1) * pageSize
+	var results []T
+	err = db.Offset(offset).Limit(pageSize).Find(&results).Error
+	return results, total, err
 }
