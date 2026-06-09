@@ -280,6 +280,7 @@ func PageQuery[T any](db *gorm.DB, page int, pageSize int) ([]T, int64, error) {
 	return results, total, err
 }
 
+// IsDuplicateKey 判断是否为 MySQL 的重复键错误
 func IsDuplicateKey(err error) bool {
 	var mysqlErr *mysql.MySQLError
 	if errors.As(err, &mysqlErr) {
