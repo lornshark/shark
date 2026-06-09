@@ -1,9 +1,11 @@
 package sharksql
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -276,4 +278,14 @@ func PageQuery[T any](db *gorm.DB, page int, pageSize int) ([]T, int64, error) {
 	var results []T
 	err = db.Offset(offset).Limit(pageSize).Find(&results).Error
 	return results, total, err
+}
+
+func IsDuplicateKey(err error) bool {
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) {
+		if mysqlErr.Number == 1062 {
+			return true
+		}
+	}
+	return false
 }
