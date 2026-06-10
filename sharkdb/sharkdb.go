@@ -38,9 +38,11 @@ func NewDb(ctx context.Context, logger *zap.Logger, config *Config) (*gorm.DB, e
 		})
 	}
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
-		Logger: &log{
-			logger: logger,
-		},
+		SkipDefaultTransaction:                   true,
+		PrepareStmt:                              true,
+		CreateBatchSize:                          1000,
+		DisableForeignKeyConstraintWhenMigrating: true,
+		Logger:                                   &log{logger: logger},
 	})
 	if err != nil {
 		return nil, err
