@@ -2,9 +2,13 @@ package sharkdb
 
 import (
 	"fmt"
+	"os"
+	"path"
 	"reflect"
 	"strings"
+	"time"
 
+	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
 )
 
@@ -303,4 +307,48 @@ func (p *TableScan[T]) Prev(db *gorm.DB, first *T) ([]T, error) {
 		list[i], list[j] = list[j], list[i]
 	}
 	return list, nil
+}
+
+func (p *TableScan[T]) Export(db *gorm.DB, name string, header []any, cb func(T) []any) (string, error) {
+	excelFile := excelize.NewFile()
+	defer excelFile.Close()
+	streamWriter, err := excelFile.NewStreamWriter("Sheet1")
+	if err != nil {
+		return "", err
+	}
+	if err := streamWriter.SetRow("A1", header); err != nil {
+		return "", err
+	}
+	index := 0
+	var last *T
+	for {
+		values, err := p.Next(db, last)
+		if err != nil {
+			return "", err
+		}
+		if len(values) == 0 {
+			break
+		}
+		for i := 0; i < len(values); i++ {
+			row := cb(values[i])
+			d := make([]any, 0, len(row))
+			for _, v := range row {
+				d = append(d, excelize.Cell{StyleID: 49, Value: fmt.Sprint(v)})
+			}
+			cell, _ := excelize.CoordinatesToCellName(1, index+2)
+			if err := streamWriter.SetRow(cell, d); err != nil {
+				return "", err
+			}
+			index++
+		}
+		last = &values[len(values)-1]
+	}
+	if err := streamWriter.Flush(); err != nil {
+		return "", err
+	}
+	fileName := fmt.Sprintf("%v_%v.xlsx", name, time.Now().Format("20060102150405"))
+	if err := excelFile.SaveAs(path.Join(os.TempDir(), fileName)); err != nil {
+		return "", err
+	}
+	return fileName, nil
 }
