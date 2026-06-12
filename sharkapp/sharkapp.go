@@ -121,8 +121,11 @@ func New(options *Options) (*App, error) {
 			return nil, err
 		}
 		app.Kafka = kafka
-		kafkaLogWriter, _ := app.Kafka.Writer(fmt.Sprintf("%v_game_log", app.Project))
-		app.sharklog.SetKafkaWriter(kafkaLogWriter)
+		// 只在开发环境和测试环境,自己收集日志, 生产环境由运维收集日志
+		if app.Env == "dev" || app.Env == "test" {
+			kafkaLogWriter, _ := app.Kafka.Writer(fmt.Sprintf("%v_game_log", app.Project))
+			app.sharklog.SetKafkaWriter(kafkaLogWriter)
+		}
 	}
 	if options.kafka != nil {
 		app.Logger.Info("连接kafka成功", zap.String("host", options.kafka.Host), zap.Int("port", options.kafka.Port))
