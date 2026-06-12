@@ -66,23 +66,29 @@ func NewOption(project string, name string) *Options {
 	options.http = v.GetInt("http")
 	if strings.TrimSpace(v.GetString("redis_cluster.host")) != "" {
 		options.redis_cluster = &sharkredis.Config{
-			Host:     strings.TrimSpace(v.GetString("redis_cluster.host")),
-			Port:     v.GetInt("redis_cluster.port"),
-			Password: strings.TrimSpace(v.GetString("redis_cluster.password")),
+			Host:        strings.TrimSpace(v.GetString("redis_cluster.host")),
+			Port:        v.GetInt("redis_cluster.port"),
+			Password:    strings.TrimSpace(v.GetString("redis_cluster.password")),
+			ReplaceFrom: strings.TrimSpace(v.GetString("redis_cluster.replace_from")),
+			ReplaceTo:   strings.TrimSpace(v.GetString("redis_cluster.replace_to")),
 		}
 	}
 	if strings.TrimSpace(v.GetString("redis_client.host")) != "" {
 		options.redis_client = &sharkredis.Config{
-			Host:     strings.TrimSpace(v.GetString("redis_client.host")),
-			Port:     v.GetInt("redis_client.port"),
-			Password: strings.TrimSpace(v.GetString("redis_client.password")),
+			Host:        strings.TrimSpace(v.GetString("redis_client.host")),
+			Port:        v.GetInt("redis_client.port"),
+			Password:    strings.TrimSpace(v.GetString("redis_client.password")),
+			ReplaceFrom: strings.TrimSpace(v.GetString("redis_client.replace_from")),
+			ReplaceTo:   strings.TrimSpace(v.GetString("redis_client.replace_to")),
 		}
 	}
 	if strings.TrimSpace(v.GetString("redis.host")) != "" {
 		options.redis = &sharkredis.Config{
-			Host:     strings.TrimSpace(v.GetString("redis.host")),
-			Port:     v.GetInt("redis.port"),
-			Password: strings.TrimSpace(v.GetString("redis.password")),
+			Host:        strings.TrimSpace(v.GetString("redis.host")),
+			Port:        v.GetInt("redis.port"),
+			Password:    strings.TrimSpace(v.GetString("redis.password")),
+			ReplaceFrom: strings.TrimSpace(v.GetString("redis.replace_from")),
+			ReplaceTo:   strings.TrimSpace(v.GetString("redis.replace_to")),
 		}
 	}
 	if strings.TrimSpace(v.GetString("db.host")) != "" {
