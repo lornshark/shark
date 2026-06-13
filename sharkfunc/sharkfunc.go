@@ -120,6 +120,6 @@ func Recover(logger *zap.Logger, name string) {
 }
 
 // Pointer 返回值的指针
-func Ptr[T any](v T) *T {
+func Pointer[T any](v T) *T {
 	return &v
 }
