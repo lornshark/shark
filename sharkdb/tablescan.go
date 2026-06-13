@@ -1,6 +1,7 @@
 package sharkdb
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -309,7 +310,7 @@ func (p *TableScan[T]) Prev(db *gorm.DB, first *T) ([]T, error) {
 	return list, nil
 }
 
-func (p *TableScan[T]) Export(db *gorm.DB, name string, header []any, cb func(T) []any) (string, error) {
+func (p *TableScan[T]) Export(ctx context.Context, db *gorm.DB, name string, header []any, cb func(T) []any) (string, error) {
 	excelFile := excelize.NewFile()
 	defer excelFile.Close()
 	streamWriter, err := excelFile.NewStreamWriter("Sheet1")
@@ -322,6 +323,9 @@ func (p *TableScan[T]) Export(db *gorm.DB, name string, header []any, cb func(T)
 	index := 0
 	var last *T
 	for {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		values, err := p.Next(db, last)
 		if err != nil {
 			return "", err
