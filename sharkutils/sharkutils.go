@@ -21,8 +21,8 @@ func RandNum(min int, max int) int {
 
 // RandString 生成指定长度的随机字符串
 func Md5(data []byte) string {
-	h := md5.New()
-	return hex.EncodeToString(h.Sum(data))
+	sum := md5.Sum(data)
+	return hex.EncodeToString(sum[:])
 }
 
 // GetClientIp 获取客户端 IP 地址
