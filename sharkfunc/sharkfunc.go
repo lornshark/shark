@@ -77,7 +77,7 @@ func ParallelCall(funcs ...func()) error {
 
 // 从channel中读取数据,读取到指定条数的数据,channel关闭了,context超时了,channel 没有数据 返回
 // timer 用于控制没有数据时的超时,避免一直阻塞
-func DrainChannelN[T any](ctx context.Context, ch <-chan T, size int, timer *time.Timer) []T {
+func DrainChannelN[T any](ctx context.Context, ch <-chan T, size int) []T {
 	var result []T = make([]T, 0, size)
 	if ch == nil || size <= 0 {
 		return result
@@ -102,7 +102,7 @@ func DrainChannelN[T any](ctx context.Context, ch <-chan T, size int, timer *tim
 				return result
 			}
 			result = append(result, v)
-		case <-timer.C:
+		default:
 			// 没有更多数据了
 			return result
 		}
