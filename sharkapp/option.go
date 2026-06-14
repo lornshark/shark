@@ -5,6 +5,7 @@ import (
 
 	"github.com/lornshark/shark/sharkdb"
 	"github.com/lornshark/shark/sharkelastic"
+	"github.com/lornshark/shark/sharketcd"
 	"github.com/lornshark/shark/sharkkafka"
 	"github.com/lornshark/shark/sharkminio"
 	"github.com/lornshark/shark/sharkmongodb"
@@ -33,6 +34,7 @@ type Options struct {
 	grpc          int
 	health        int
 	risingwave    *sharkrisingwave.Config
+	etcd          *sharketcd.Config
 	http          int
 }
 
@@ -156,6 +158,14 @@ func NewOption(project string, name string) *Options {
 			User:     strings.TrimSpace(v.GetString("risingwave.user")),
 			Password: strings.TrimSpace(v.GetString("risingwave.password")),
 			Database: strings.TrimSpace(v.GetString("risingwave.database")),
+		}
+	}
+	if strings.TrimSpace(v.GetString("etcd.host")) != "" {
+		options.etcd = &sharketcd.Config{
+			Host:     strings.TrimSpace(v.GetString("etcd.host")),
+			Port:     v.GetInt("etcd.port"),
+			User:     strings.TrimSpace(v.GetString("etcd.user")),
+			Password: strings.TrimSpace(v.GetString("etcd.password")),
 		}
 	}
 	return options

@@ -17,6 +17,7 @@ import (
 	"github.com/howeyc/crc16"
 	"github.com/lornshark/shark/sharkdb"
 	"github.com/lornshark/shark/sharkelastic"
+	"github.com/lornshark/shark/sharketcd"
 	"github.com/lornshark/shark/sharkgrpc"
 	"github.com/lornshark/shark/sharkhttp"
 	"github.com/lornshark/shark/sharkkafka"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/lornshark/shark/sharklog"
 	"github.com/lornshark/shark/sharktimer"
+	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
@@ -90,6 +92,7 @@ type App struct {
 	RedisClient  *redis.Client
 	Logger       *zap.Logger
 	Elastic      *sharkelastic.SharkElastic
+	Etcd         *clientv3.Client
 	Mongodb      *mongo.Client
 	Rabbitmq     *sharkrabbitmq.Client
 	RisingWave   *gorm.DB
@@ -205,6 +208,15 @@ func New(options *Options) (*App, error) {
 		}
 		app.Logger.Info("连接risingwave成功", zap.String("host", options.risingwave.Host), zap.Int("port", options.risingwave.Port), zap.String("database", options.risingwave.Database))
 		app.RisingWave = rw
+	}
+	if options.etcd != nil {
+		etcd, err := sharketcd.New(app.Context, options.etcd)
+		if err != nil {
+			app.Logger.Error("连接etcd失败", zap.String("host", options.etcd.Host), zap.Int("port", options.etcd.Port), zap.Error(err))
+			return nil, err
+		}
+		app.Logger.Info("连接etcd成功", zap.String("host", options.etcd.Host), zap.Int("port", options.etcd.Port))
+		app.Etcd = etcd
 	}
 	if options.mongodb != nil {
 		mongodb, err := sharkmongodb.New(app.Context, options.mongodb)

@@ -34,6 +34,12 @@
 #   password: CEki57pxTJyYaLD
 #   database: kgame
 
+# etcd:
+#   host: 192.168.191.100
+#   port: 12379
+#   user: root
+#   password: CEki57pxTJyYaLD
+
 # elastic:
 #   host: http://192.168.191.100:9200
 #   user: elastic
