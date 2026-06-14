@@ -107,7 +107,7 @@ func NewOption(project string, name string) *Options {
 			Password: strings.TrimSpace(v.GetString("elastic.password")),
 		}
 	}
-	if v.GetString("minio.host") != "" {
+	if strings.TrimSpace(v.GetString("minio.host")) != "" {
 		options.minio = &sharkminio.Config{
 			Host:     strings.TrimSpace(v.GetString("minio.host")),
 			Port:     v.GetInt("minio.port"),
@@ -115,7 +115,7 @@ func NewOption(project string, name string) *Options {
 			Password: strings.TrimSpace(v.GetString("minio.password")),
 		}
 	}
-	if v.GetString("kafka.host") != "" {
+	if strings.TrimSpace(v.GetString("kafka.host")) != "" {
 		options.kafka = &sharkkafka.Config{
 			Host:     strings.TrimSpace(v.GetString("kafka.host")),
 			Port:     v.GetInt("kafka.port"),
@@ -123,7 +123,7 @@ func NewOption(project string, name string) *Options {
 			Password: strings.TrimSpace(v.GetString("kafka.password")),
 		}
 	}
-	if v.GetString("mongodb.host") != "" {
+	if strings.TrimSpace(v.GetString("mongodb.host")) != "" {
 		options.mongodb = &sharkmongodb.Config{
 			Host:     strings.TrimSpace(v.GetString("mongodb.host")),
 			Port:     v.GetInt("mongodb.port"),
@@ -143,27 +143,13 @@ func NewOption(project string, name string) *Options {
 		}
 	}
 	if len(rmqhosts) > 0 {
-		newHosts := []string{}
-		for i := range rmqhosts {
-			if strings.Contains(rmqhosts[i], ",") {
-				sp := strings.Split(rmqhosts[i], ",")
-				for _, h := range sp {
-					if strings.TrimSpace(h) != "" {
-						newHosts = append(newHosts, strings.TrimSpace(h))
-					}
-				}
-			} else {
-				newHosts = append(newHosts, rmqhosts[i])
-			}
-		}
-		rmqhosts = newHosts
 		options.rabbitmq = &sharkrabbitmq.Config{
 			Host:     rmqhosts,
 			User:     strings.TrimSpace(v.GetString("rabbitmq.user")),
 			Password: strings.TrimSpace(v.GetString("rabbitmq.password")),
 		}
 	}
-	if v.GetString("risingwave.host") != "" {
+	if strings.TrimSpace(v.GetString("risingwave.host")) != "" {
 		options.risingwave = &sharkrisingwave.Config{
 			Host:     strings.TrimSpace(v.GetString("risingwave.host")),
 			Port:     v.GetInt("risingwave.port"),

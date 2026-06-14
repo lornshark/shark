@@ -3,11 +3,8 @@ package sharkelastic
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/http"
-	"time"
 
-	"github.com/olivere/elastic/v7"
+	"github.com/elastic/go-elasticsearch/v9"
 )
 
 type Config struct {
@@ -16,38 +13,22 @@ type Config struct {
 	Password string `json:"password" yaml:"password" mapstructure:"password"` // 连接密码
 }
 
-func New(ctx context.Context, config *Config) (*elastic.Client, error) {
+func New(ctx context.Context, config *Config) (*SharkElastic, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config required")
 	}
-	httpClient := http.Client{}
-	httpClient.Transport = &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 100,
-		IdleConnTimeout:     90 * time.Second,
-		TLSHandshakeTimeout: 10 * time.Second,
-	}
-	es, err := elastic.NewClient(
-		elastic.SetHttpClient(&httpClient),
-		elastic.SetSniff(false),
-		elastic.SetHealthcheck(true),
-		elastic.SetHealthcheckInterval(15*time.Second),
-		elastic.SetURL(config.Host),
-		elastic.SetBasicAuth(config.User, config.Password),
-		elastic.SetSniff(false),
-		elastic.SetHealthcheck(false),
+	client, err := elasticsearch.New(
+		elasticsearch.WithAddresses(config.Host),
+		elasticsearch.WithBasicAuth(config.User, config.Password),
 	)
 	if err != nil {
 		return nil, err
 	}
-	_, err = es.NodesInfo().Do(ctx)
+	_, err = client.Ping()
 	if err != nil {
 		return nil, err
 	}
-	return es, nil
+	return &SharkElastic{
+		Client: client,
+	}, nil
 }

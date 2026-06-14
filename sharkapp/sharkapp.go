@@ -30,7 +30,6 @@ import (
 	"github.com/lornshark/shark/sharktimer"
 
 	"github.com/minio/minio-go/v7"
-	"github.com/olivere/elastic/v7"
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.uber.org/zap"
@@ -90,7 +89,7 @@ type App struct {
 	RedisCluster *redis.ClusterClient
 	RedisClient  *redis.Client
 	Logger       *zap.Logger
-	Elastic      *elastic.Client
+	Elastic      *sharkelastic.SharkElastic
 	Mongodb      *mongo.Client
 	Rabbitmq     *sharkrabbitmq.Client
 	RisingWave   *gorm.DB
