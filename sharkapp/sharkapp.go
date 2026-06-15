@@ -125,7 +125,8 @@ func New(options *Options) (*App, error) {
 		app.Kafka = kafka
 		// 只在开发环境和测试环境,自己收集日志, 生产环境由运维收集日志
 		if app.Env == "dev" || app.Env == "test" {
-			kafkaLogWriter, _ := app.Kafka.Writer(fmt.Sprintf("%v_game_log", app.Project))
+			topic := fmt.Sprintf("%v_game_log", app.Project)
+			kafkaLogWriter, _ := app.Kafka.Writer(topic)
 			app.sharklog.SetKafkaWriter(kafkaLogWriter)
 		}
 	}

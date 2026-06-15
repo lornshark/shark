@@ -134,6 +134,16 @@ func NewOption(project string, name string) *Options {
 		}
 	}
 	rmqhosts := v.GetStringSlice("rabbitmq.host")
+	// viper GetStringSlice 从环境变量读取时不分割逗号，需要手动处理
+	var splitHosts []string
+	for _, h := range rmqhosts {
+		for _, sub := range strings.Split(h, ",") {
+			if s := strings.TrimSpace(sub); s != "" {
+				splitHosts = append(splitHosts, s)
+			}
+		}
+	}
+	rmqhosts = splitHosts
 	if len(rmqhosts) == 0 {
 		if s := strings.TrimSpace(v.GetString("rabbitmq.host")); s != "" {
 			sp := strings.Split(s, ",")
