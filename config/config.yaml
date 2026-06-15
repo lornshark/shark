@@ -32,7 +32,7 @@ risingwave:
   port: 4566
   user: root
   password: CEki57pxTJyYaLD
-  database: dev
+  database: kgame
 
 etcd:
   host: 192.168.191.100
