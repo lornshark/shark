@@ -6,9 +6,9 @@ timer: true
 
 kafka:
   host: 192.168.191.100
-  port: 9092
-  user:
-  password:
+  port: 9094
+  user: root
+  password: CEki57pxTJyYaLD
 
 redis:
   host: 192.168.191.100
