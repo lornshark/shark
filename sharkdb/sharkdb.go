@@ -17,7 +17,6 @@ import (
 
 type Config struct {
 	Host     string `json:"host" yaml:"host" mapstructure:"host"`             // 连接地址
-	Port     int    `json:"port" yaml:"port" mapstructure:"port"`             // 连接端口
 	User     string `json:"user" yaml:"user" mapstructure:"user"`             // 连接用户名
 	Password string `json:"password" yaml:"password" mapstructure:"password"` // 连接密码
 	Database string `json:"database" yaml:"database" mapstructure:"database"` // 连接数据库名称
@@ -28,8 +27,8 @@ func NewDb(ctx context.Context, logger *zap.Logger, config *Config) (*gorm.DB, e
 	if config == nil {
 		return nil, fmt.Errorf("config required")
 	}
-	dsn := "%v:%v@tcp(%v:%v)/%v?charset=utf8mb4&parseTime=True&loc=Local"
-	dsn = fmt.Sprintf(dsn, config.User, config.Password, config.Host, config.Port, config.Database)
+	dsn := "%v:%v@tcp(%v)/%v?charset=utf8mb4&parseTime=True&loc=Local"
+	dsn = fmt.Sprintf(dsn, config.User, config.Password, config.Host, config.Database)
 	if config.Tls != "" {
 		dsn += "&tls=tidb"
 		mysqldriver.RegisterTLSConfig("tidb", &tls.Config{

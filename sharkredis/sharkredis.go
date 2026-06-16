@@ -11,11 +11,10 @@ import (
 )
 
 type Config struct {
-	Host        string `json:"host" yaml:"host" mapstructure:"host"`                         // 连接地
-	Port        int    `json:"port" yaml:"port" mapstructure:"port"`                         // 连接端口
-	Password    string `json:"password" yaml:"password" mapstructure:"password"`             // 连接密码，默认值为 "" 表示不使用密码连接
-	ReplaceFrom string `json:"replace_from" yaml:"replace_from" mapstructure:"replace_from"` // 替换前缀，默认值为 "" 表示不替换
-	ReplaceTo   string `json:"replace_to" yaml:"replace_to" mapstructure:"replace_to"`       // 替换后缀，默认值为 "" 表示不替换
+	Host        []string `json:"host" yaml:"host" mapstructure:"host"`                         // 连接地
+	Password    string   `json:"password" yaml:"password" mapstructure:"password"`             // 连接密码，默认值为 "" 表示不使用密码连接
+	ReplaceFrom string   `json:"replace_from" yaml:"replace_from" mapstructure:"replace_from"` // 替换前缀，默认值为 "" 表示不替换
+	ReplaceTo   string   `json:"replace_to" yaml:"replace_to" mapstructure:"replace_to"`       // 替换后缀，默认值为 "" 表示不替换
 }
 
 func NewCluster(ctx context.Context, config *Config) (*redis.ClusterClient, error) {
@@ -23,7 +22,7 @@ func NewCluster(ctx context.Context, config *Config) (*redis.ClusterClient, erro
 		return nil, fmt.Errorf("config required")
 	}
 	client := redis.NewClusterClient(&redis.ClusterOptions{
-		Addrs:           []string{fmt.Sprintf("%v:%v", config.Host, config.Port)},
+		Addrs:           config.Host,
 		Username:        "default",
 		Password:        config.Password,
 		MaxRetries:      2,                      // 最大重试次数
@@ -58,7 +57,7 @@ func NewClient(ctx context.Context, config *Config) (*redis.Client, error) {
 		return nil, fmt.Errorf("config required")
 	}
 	client := redis.NewClient(&redis.Options{
-		Addr:            fmt.Sprintf("%v:%v", config.Host, config.Port),
+		Addr:            config.Host[0], // 只使用第一个地址
 		Username:        "default",
 		Password:        config.Password,
 		MaxRetries:      2,                      // 最大重试次数

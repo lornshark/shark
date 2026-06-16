@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/lornshark/shark/sharkapp"
 )
 
@@ -33,5 +36,6 @@ type Test struct {
 }
 
 func (t *Test) Start() {
-
+	a, b := t.svc.Minio.BucketExists(context.Background(), "test")
+	fmt.Println(a, b)
 }

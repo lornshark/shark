@@ -17,7 +17,6 @@ import (
 
 type Config struct {
 	Host     string `json:"host" yaml:"host" mapstructure:"host"`             // 连接地址
-	Port     int    `json:"port" yaml:"port" mapstructure:"port"`             // 连接端口
 	User     string `json:"user" yaml:"user" mapstructure:"user"`             // 连接用户名
 	Password string `json:"password" yaml:"password" mapstructure:"password"` // 连接密码
 	Database string `json:"database" yaml:"database" mapstructure:"database"` // 连接数据库名称
@@ -28,11 +27,10 @@ func New(ctx context.Context, logger *zap.Logger, config *Config) (*gorm.DB, err
 		return nil, fmt.Errorf("config required")
 	}
 	dsn := fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?sslmode=disable",
+		"postgres://%s:%s@%s/%s?sslmode=disable",
 		url.QueryEscape(config.User),
 		url.QueryEscape(config.Password),
 		config.Host,
-		config.Port,
 		config.Database,
 	)
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
