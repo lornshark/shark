@@ -122,9 +122,10 @@ func NewOption(project string, name string) *Options {
 		}
 	}
 	{
-		if strings.TrimSpace(v.GetString("db.host")) != "" {
+		hosts := options.read_slices(v, "db.host")
+		if len(hosts) > 0 {
 			options.db = &sharkdb.Config{
-				Host:     strings.TrimSpace(v.GetString("db.host")),
+				Host:     hosts[0],
 				User:     strings.TrimSpace(v.GetString("db.user")),
 				Password: strings.TrimSpace(v.GetString("db.password")),
 				Database: strings.TrimSpace(v.GetString("db.database")),
@@ -142,9 +143,10 @@ func NewOption(project string, name string) *Options {
 		}
 	}
 	{
-		if strings.TrimSpace(v.GetString("minio.host")) != "" {
+		hosts := options.read_slices(v, "minio.host")
+		if len(hosts) > 0 {
 			options.minio = &sharkminio.Config{
-				Host:     strings.TrimSpace(v.GetString("minio.host")),
+				Host:     hosts[0],
 				User:     strings.TrimSpace(v.GetString("minio.user")),
 				Password: strings.TrimSpace(v.GetString("minio.password")),
 			}
@@ -161,9 +163,10 @@ func NewOption(project string, name string) *Options {
 		}
 	}
 	{
-		if strings.TrimSpace(v.GetString("mongodb.host")) != "" {
+		hosts := options.read_slices(v, "mongodb.host")
+		if len(hosts) > 0 {
 			options.mongodb = &sharkmongodb.Config{
-				Host:     strings.TrimSpace(v.GetString("mongodb.host")),
+				Host:     hosts[0],
 				User:     strings.TrimSpace(v.GetString("mongodb.user")),
 				Password: strings.TrimSpace(v.GetString("mongodb.password")),
 			}
@@ -180,9 +183,10 @@ func NewOption(project string, name string) *Options {
 		}
 	}
 	{
-		if strings.TrimSpace(v.GetString("risingwave.host")) != "" {
+		hosts := options.read_slices(v, "risingwave.host")
+		if len(hosts) > 0 {
 			options.risingwave = &sharkrisingwave.Config{
-				Host:     strings.TrimSpace(v.GetString("risingwave.host")),
+				Host:     hosts[0],
 				User:     strings.TrimSpace(v.GetString("risingwave.user")),
 				Password: strings.TrimSpace(v.GetString("risingwave.password")),
 				Database: strings.TrimSpace(v.GetString("risingwave.database")),
