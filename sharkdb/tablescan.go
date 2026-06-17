@@ -42,7 +42,7 @@ import (
 //
 // 推荐：
 //
-//	OrderAsc("create_time", "id")
+//	Asc("create_time", "id")
 //
 // 对应索引：
 //
@@ -60,8 +60,8 @@ import (
 //
 //	scaner := sharkdb.NewTableScan[XAdminLog]().
 //		PageSize(100).
-//		OrderAsc("create_time").
-//		OrderAsc("auto_id")
+//		Asc("create_time").
+//		Asc("auto_id")
 //
 // 下一页：
 //
@@ -92,7 +92,7 @@ import (
 //
 // SQL 示例：
 //
-//	OrderAsc("create_time","id")
+//	Asc("create_time","id")
 //
 // 下一页：
 //
@@ -136,23 +136,50 @@ type TableScan[T any] struct {
 	orders   []tableScanOrder
 }
 
+// NewTableScan 创建一个泛型表扫描器。
+//
+// 示例：
+//
+//	scan := NewTableScan[User]().
+//	    PageSize(200).
+//	    Asc("create_time", "id")
 func NewTableScan[T any]() *TableScan[T] {
 	return &TableScan[T]{}
 }
 
+// PageSize 设置每页扫描行数。
+// 建议值为 100~500，太大会增加单次查询延迟，太小会增加查询次数。
+//
+// 示例：
+//
+//	scan.PageSize(200)
 func (p *TableScan[T]) PageSize(size int) *TableScan[T] {
 	p.pagesize = size
 	return p
 }
 
-func (p *TableScan[T]) OrderAsc(columns ...string) *TableScan[T] {
+// Asc 添加升序排序字段。
+// 支持多次调用添加多字段排序。
+// 字段名支持 struct 字段名、gorm column tag、json tag 三种匹配方式。
+//
+// 示例：
+//
+//	scan.Asc("create_time").Asc("id")
+//	scan.Asc("create_time", "id") // 等价写法
+func (p *TableScan[T]) Asc(columns ...string) *TableScan[T] {
 	for _, column := range columns {
 		p.orders = append(p.orders, tableScanOrder{columns: column, order: "asc"})
 	}
 	return p
 }
 
-func (p *TableScan[T]) OrderDesc(columns ...string) *TableScan[T] {
+// Desc 添加降序排序字段。
+// 与 Asc 相同，字段名支持 struct 字段名、gorm column tag、json tag。
+//
+// 示例：
+//
+//	scan.Desc("score", "id")
+func (p *TableScan[T]) Desc(columns ...string) *TableScan[T] {
 	for _, column := range columns {
 		p.orders = append(p.orders, tableScanOrder{columns: column, order: "desc"})
 	}
@@ -210,6 +237,22 @@ func getFieldValue[T any](obj *T, name string) any {
 	return nil
 }
 
+// Next 获取下一页数据。
+// db 是已应用 WHERE 条件的 gorm.DB（如 .Where("deleted = 0")），
+// last 是上一页的最后一条记录，首次查询时传 nil。
+// 返回数据后，将返回切片的最后一条作为下次查询的 last 游标。
+//
+// 示例：
+//
+//	var last *User
+//	for {
+//	    results, err := scan.Next(db.Where("deleted = 0"), last)
+//	    if err != nil || len(results) == 0 {
+//	        break
+//	    }
+//	    last = &results[len(results)-1]
+//	    // 处理 results ...
+//	}
 func (p *TableScan[T]) Next(db *gorm.DB, last *T) ([]T, error) {
 	tx := db.Session(&gorm.Session{})
 	for _, order := range p.orders {
@@ -254,6 +297,14 @@ func (p *TableScan[T]) Next(db *gorm.DB, last *T) ([]T, error) {
 	return list, err
 }
 
+// Prev 获取上一页数据。
+// db 是已应用 WHERE 条件的 gorm.DB，
+// first 是当前页的第一条记录。
+// 内部会自动反转 ORDER BY 并 reverse 结果，返回顺序与 Next 一致。
+//
+// 示例：
+//
+//	prevResults, err := scan.Prev(db.Where("deleted = 0"), &currentPage[0])
 func (p *TableScan[T]) Prev(db *gorm.DB, first *T) ([]T, error) {
 	tx := db.Session(&gorm.Session{})
 	for _, order := range p.orders {
@@ -310,6 +361,23 @@ func (p *TableScan[T]) Prev(db *gorm.DB, first *T) ([]T, error) {
 	return list, nil
 }
 
+// Export 将全表数据导出为 Excel 文件。
+// db 是已应用 WHERE 条件的 gorm.DB，
+// name 为导出文件名前缀（会自动追加时间戳），
+// header 为 Excel 表头（如 []any{"ID", "姓名", "时间"}），
+// cb 为行数据转换函数，返回每列的值。
+// 返回生成的文件路径（位于系统临时目录）。
+//
+// 示例：
+//
+//	filePath, err := scan.Export(ctx,
+//	    app.Db.Where("status = 1"),
+//	    "用户列表",
+//	    []any{"ID", "姓名", "手机号", "创建时间"},
+//	    func(u User) []any {
+//	        return []any{u.Id, u.Name, u.Phone, u.CreateTime}
+//	    },
+//	)
 func (p *TableScan[T]) Export(ctx context.Context, db *gorm.DB, name string, header []any, cb func(T) []any) (string, error) {
 	excelFile := excelize.NewFile()
 	defer excelFile.Close()
