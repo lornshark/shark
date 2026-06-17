@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/lornshark/shark/sharkjson"
+	"github.com/spf13/cast"
 	"gorm.io/gorm"
 )
 
@@ -289,4 +291,66 @@ func IsDuplicateKey(err error) bool {
 		}
 	}
 	return false
+}
+
+// column JSON_SEARCH(column, 'one', ?) IS NOT NULL
+func JsonSearchOne(column string, value any) (string, string) {
+	sql := fmt.Sprintf("JSON_SEARCH(%v, 'one', ?) IS NOT NULL", column)
+	data := fmt.Sprintf("%%%v%%", cast.ToString(value))
+	return sql, data
+}
+
+// column JSON_CONTAINS(column, ?)
+func JsonContains(column string, value any) (string, string) {
+	sql := fmt.Sprintf("JSON_CONTAINS(%v, ?)", column)
+	data := fmt.Sprintf("%v", value)
+	return sql, data
+}
+
+// column JSON_ARRAY_APPEND(COALESCE(column, JSON_ARRAY()), '$', CONVERT(?,JSON), CONVERT(?,JSON), ...)
+func JsonArrayAppendObject(column string, value ...any) (string, []any) {
+	sql := fmt.Sprintf("JSON_ARRAY_APPEND(COALESCE(%v, JSON_ARRAY())", column)
+	args := []any{}
+	for _, v := range value {
+		switch v.(type) {
+		case string:
+			sql += ",'$', CAST(? AS JSON)"
+			args = append(args, v)
+		default:
+			sql += ",'$', CAST(? AS JSON)"
+			args = append(args, sharkjson.ToJsonString(v))
+		}
+	}
+	sql += ")"
+	return sql, args
+}
+
+// column JSON_ARRAY_APPEND(COALESCE(column, JSON_ARRAY()), '$', CONVERT(?,JSON), ?, ...)
+func JsonArrayAppend(column string, value ...any) (string, []any) {
+	sql := fmt.Sprintf("JSON_ARRAY_APPEND(COALESCE(%v, JSON_ARRAY())", column)
+	args := []any{}
+	for _, v := range value {
+		sql += ",'$', ?"
+		args = append(args, v)
+	}
+	sql += ")"
+	return sql, args
+}
+
+func JsonSetObject(column string, path string, value any) (string, []any) {
+	sql := fmt.Sprintf("JSON_SET(COALESCE(%v, JSON_OBJECT()), '%v', CONVERT(?,JSON))", column, path)
+	return sql, []any{sharkjson.ToJsonString(value)}
+}
+
+func JsonSet(column string, path string, value any) (string, []any) {
+	sql := fmt.Sprintf("JSON_SET(COALESCE(%v, JSON_OBJECT()), '%v', ?)", column, path)
+	return sql, []any{value}
+}
+
+func JsonPath(path ...string) string {
+	jsonPath := "$"
+	for _, p := range path {
+		jsonPath += fmt.Sprintf(".%v", p)
+	}
+	return jsonPath
 }
