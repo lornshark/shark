@@ -9,16 +9,41 @@ import (
 	"gorm.io/gorm"
 )
 
+// SharkTable 是 gorm.DB 的便捷包装器。
+//
+// 它在 gorm 基础上提供了链式调用的条件构建方法，
+// 自动跳过空值（避免写一堆 if xx != "" 判空），
+// 并支持通过 sharksql.Builder 构建复杂 OR 查询。
+//
+// 与 sharksql.Builder 的区别：
+//   - Builder 是纯 SQL 条件构建器，返回 SQL 字符串和参数，需要自行拼接到 gorm 中。
+//   - SharkTable 直接封装 gorm.DB，调用方法后立即生效，适合简单的单表 CRUD。
+//
+// 使用示例：
+//
+//	table := NewTable(db.Table("users"))
+//	var users []User
+//	err := table.
+//	    Eq("status", 1).
+//	    Like("name", "张").
+//	    FromTo("created_at", start, end).
+//	    Asc("id").
+//	    Gorm().Find(&users).Error
 type SharkTable struct {
 	db *gorm.DB
 }
 
-// NewTable 创建 SharkTable 实例
+// NewTable 创建一个 SharkTable 实例，
+// db 通常由 db.Table("table_name") 获得。
+//
+// 示例：
+//
+//	table := NewTable(app.Db.Table("users"))
 func NewTable(db *gorm.DB) *SharkTable {
 	return &SharkTable{db: db}
 }
 
-// isEmpty 判断值是否为空，支持 nil、空字符串、空切片、空数组、空映射等
+// isEmpty 判断值是否为空（nil / 空指针 / 空切片 / 空 map）。
 func (t *SharkTable) isEmpty(v any) bool {
 	if v == nil {
 		return true
@@ -36,13 +61,30 @@ func (t *SharkTable) isEmpty(v any) bool {
 	return false
 }
 
-// Gorm 返回底层的 gorm.DB 实例，供进一步操作使用
+// Gorm 返回底层的 gorm.DB，用于执行最终的查询操作（Find、Count 等）。
+//
+// 示例：
+//
+//	var users []User
+//	err := table.Eq("status", 1).Gorm().Find(&users).Error
+//
+//	var count int64
+//	err := table.Eq("deleted", 0).Gorm().Count(&count).Error
 func (t *SharkTable) Gorm() *gorm.DB {
 	return t.db
 }
 
-// TiFlash 设置查询使用 TiFlash 引擎，返回 SharkTable 实例以支持链式调用
-// 使用本方法,只能查询单表,不能查询关联表
+// SelectWithTiflash 设置查询使用 TiFlash 引擎。
+//
+// 第一个参数为 SELECT 的列名，后续参数为对应值。
+// 底层等价于 SELECT /*+ read_from_storage(tiflash[table_name]) */ col1, col2 ...
+//
+// 注意：使用此方法只能查询单表，不能查询关联表。
+//
+// 示例：
+//
+//	table.SelectWithTiflash("id", "name", "created_at")
+//	// → SELECT /*+ read_from_storage(tiflash[users]) */ id, name, created_at
 func (t *SharkTable) SelectWithTiflash(columns ...any) *SharkTable {
 	if len(columns) == 0 {
 		return t
@@ -52,13 +94,27 @@ func (t *SharkTable) SelectWithTiflash(columns ...any) *SharkTable {
 	return t
 }
 
-// Select 设置查询字段，返回 gorm.DB 实例以支持链式调用
+// Select 设置查询字段，直接透传给 gorm 的 Select。
+//
+// 示例：
+//
+//	table.Select("id, name").Select("email")
+//	// → SELECT id, name, email
+//
+//	table.Select("SUM(amount) as total")
 func (t *SharkTable) Select(query any, args ...any) *SharkTable {
 	t.db = t.db.Select(query, args...)
 	return t
 }
 
-// Eq 添加等于条件，value 为空时不添加条件
+// Eq 添加等值条件：column = ?。
+// value 为空（nil/空串/空切片）时自动跳过。
+//
+// 示例：
+//
+//	table.Eq("status", 1)           // status = 1
+//	table.Eq("name", "")            // 跳过，不添加条件
+//	table.Eq("status", status)      // status 变量为 nil 时自动跳过
 func (t *SharkTable) Eq(column string, value any) *SharkTable {
 	if !t.isEmpty(value) {
 		t.db = t.db.Where(column+" = ?", value)
@@ -66,7 +122,12 @@ func (t *SharkTable) Eq(column string, value any) *SharkTable {
 	return t
 }
 
-// Ne 添加不等于条件，value 为空时不添加条件
+// Ne 添加不等于条件：column <> ?。
+// value 为空时自动跳过。
+//
+// 示例：
+//
+//	table.Ne("status", 0)  // status <> 0
 func (t *SharkTable) Ne(column string, value any) *SharkTable {
 	if !t.isEmpty(value) {
 		t.db = t.db.Where(column+" <> ?", value)
@@ -74,7 +135,12 @@ func (t *SharkTable) Ne(column string, value any) *SharkTable {
 	return t
 }
 
-// Gt 添加大于条件，value 为空时不添加条件
+// Gt 添加大于条件：column > ?。
+// value 为空时自动跳过。
+//
+// 示例：
+//
+//	table.Gt("age", 18)  // age > 18
 func (t *SharkTable) Gt(column string, value any) *SharkTable {
 	if !t.isEmpty(value) {
 		t.db = t.db.Where(column+" > ?", value)
@@ -82,7 +148,12 @@ func (t *SharkTable) Gt(column string, value any) *SharkTable {
 	return t
 }
 
-// Gte 添加大于等于条件，value 为空时不添加条件
+// Gte 添加大于等于条件：column >= ?。
+// value 为空时自动跳过。
+//
+// 示例：
+//
+//	table.Gte("score", 60)  // score >= 60
 func (t *SharkTable) Gte(column string, value any) *SharkTable {
 	if !t.isEmpty(value) {
 		t.db = t.db.Where(column+" >= ?", value)
@@ -90,7 +161,12 @@ func (t *SharkTable) Gte(column string, value any) *SharkTable {
 	return t
 }
 
-// Lt 添加小于条件，value 为空时不添加条件
+// Lt 添加小于条件：column < ?。
+// value 为空时自动跳过。
+//
+// 示例：
+//
+//	table.Lt("price", 100)  // price < 100
 func (t *SharkTable) Lt(column string, value any) *SharkTable {
 	if !t.isEmpty(value) {
 		t.db = t.db.Where(column+" < ?", value)
@@ -98,7 +174,12 @@ func (t *SharkTable) Lt(column string, value any) *SharkTable {
 	return t
 }
 
-// Lte 添加小于等于条件，value 为空时不添加条件
+// Le 添加小于等于条件：column <= ?。
+// value 为空时自动跳过。
+//
+// 示例：
+//
+//	table.Le("stock", 50)  // stock <= 50
 func (t *SharkTable) Le(column string, value any) *SharkTable {
 	if !t.isEmpty(value) {
 		t.db = t.db.Where(column+" <= ?", value)
@@ -106,7 +187,27 @@ func (t *SharkTable) Le(column string, value any) *SharkTable {
 	return t
 }
 
-// Like 添加模糊匹配条件，value 为空时不添加条件
+// FromTo 添加左闭右开区间条件：[from, to)，即 column >= ? AND column < ?。
+// from 或 to 为空时自动跳过。
+//
+// 示例：
+//
+//	table.FromTo("created_at", startTime, endTime)
+//	// → created_at >= ? AND created_at < ?
+func (t *SharkTable) FromTo(column string, from any, to any) *SharkTable {
+	if !t.isEmpty(from) && !t.isEmpty(to) {
+		t.db = t.db.Where(column+" >= ? AND "+column+" < ?", from, to)
+	}
+	return t
+}
+
+// Like 添加模糊匹配条件：column LIKE '%value%'（前后通配）。
+// value 为空时自动跳过。支持指针类型自动解引用。
+//
+// 示例：
+//
+//	table.Like("name", "张")       // name LIKE '%张%'
+//	table.Like("title", &keyword) // keyword 为 *string，nil 时自动跳过
 func (t *SharkTable) Like(column string, value any) *SharkTable {
 	if !t.isEmpty(value) {
 		v := reflect.ValueOf(value)
@@ -121,7 +222,12 @@ func (t *SharkTable) Like(column string, value any) *SharkTable {
 	return t
 }
 
-// NotLike 添加模糊不匹配条件，value 为空时不添加条件
+// NotLike 添加反向模糊匹配条件：column NOT LIKE '%value%'。
+// value 为空时自动跳过。支持指针类型自动解引用。
+//
+// 示例：
+//
+//	table.NotLike("name", "test")  // name NOT LIKE '%test%'
 func (t *SharkTable) NotLike(column string, value any) *SharkTable {
 	if !t.isEmpty(value) {
 		v := reflect.ValueOf(value)
@@ -136,7 +242,53 @@ func (t *SharkTable) NotLike(column string, value any) *SharkTable {
 	return t
 }
 
-// In 添加 IN 条件，value 为空时不添加条件
+// LikeLeft 添加后缀匹配条件：column LIKE '%value'，匹配以 value 结尾的字符串。
+// value 为空时自动跳过。支持指针类型自动解引用。
+//
+// 示例：
+//
+//	table.LikeLeft("email", "@qq.com")  // email LIKE '%@qq.com'
+func (t *SharkTable) LikeLeft(column string, value any) *SharkTable {
+	if !t.isEmpty(value) {
+		v := reflect.ValueOf(value)
+		if v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				return t
+			}
+			value = v.Elem().Interface()
+		}
+		t.db = t.db.Where(column+" LIKE ?", fmt.Sprintf("%%%v", value))
+	}
+	return t
+}
+
+// LikeRight 添加前缀匹配条件：column LIKE 'value%'，匹配以 value 开头的字符串。
+// value 为空时自动跳过。支持指针类型自动解引用。
+//
+// 示例：
+//
+//	table.LikeRight("phone", "138")  // phone LIKE '138%'
+func (t *SharkTable) LikeRight(column string, value any) *SharkTable {
+	if !t.isEmpty(value) {
+		v := reflect.ValueOf(value)
+		if v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				return t
+			}
+			value = v.Elem().Interface()
+		}
+		t.db = t.db.Where(column+" LIKE ?", fmt.Sprintf("%v%%", value))
+	}
+	return t
+}
+
+// In 添加 IN 条件：column IN (?, ?, ...)。
+// value 应为切片或数组，为空时自动跳过。
+//
+// 示例：
+//
+//	table.In("status", []int{1, 2, 3})     // status IN (1, 2, 3)
+//	table.In("id", []int64{100, 200, 300}) // id IN (100, 200, 300)
 func (t *SharkTable) In(column string, value any) *SharkTable {
 	if !t.isEmpty(value) {
 		t.db = t.db.Where(column+" IN ?", value)
@@ -144,7 +296,12 @@ func (t *SharkTable) In(column string, value any) *SharkTable {
 	return t
 }
 
-// NotIn 添加 NOT IN 条件，value 为空时不添加条件
+// NotIn 添加 NOT IN 条件：column NOT IN (?, ?, ...)。
+// value 应为切片或数组，为空时自动跳过。
+//
+// 示例：
+//
+//	table.NotIn("id", []int64{1, 2})  // id NOT IN (1, 2)
 func (t *SharkTable) NotIn(column string, value any) *SharkTable {
 	if !t.isEmpty(value) {
 		t.db = t.db.Where(column+" NOT IN ?", value)
@@ -152,19 +309,33 @@ func (t *SharkTable) NotIn(column string, value any) *SharkTable {
 	return t
 }
 
-// IsNull 添加 IS NULL 条件，value 为空时不添加条件
+// IsNull 添加 IS NULL 条件。
+//
+// 示例：
+//
+//	table.IsNull("deleted_at")  // deleted_at IS NULL
 func (t *SharkTable) IsNull(column string) *SharkTable {
 	t.db = t.db.Where(column + " IS NULL")
 	return t
 }
 
-// IsNotNull 添加 IS NOT NULL 条件，value 为空时不添加条件
+// IsNotNull 添加 IS NOT NULL 条件。
+//
+// 示例：
+//
+//	table.IsNotNull("email")  // email IS NOT NULL
 func (t *SharkTable) IsNotNull(column string) *SharkTable {
 	t.db = t.db.Where(column + " IS NOT NULL")
 	return t
 }
 
-// Asc 添加升序排序，value 为空时不添加条件
+// Asc 添加升序排序。
+// column 为空时自动跳过。
+//
+// 示例：
+//
+//	table.Asc("create_time").Asc("id")
+//	// → ORDER BY create_time ASC, id ASC
 func (t *SharkTable) Asc(column string) *SharkTable {
 	if !t.isEmpty(column) {
 		t.db = t.db.Order(column + " ASC")
@@ -172,7 +343,13 @@ func (t *SharkTable) Asc(column string) *SharkTable {
 	return t
 }
 
-// Desc 添加降序排序，value 为空时不添加条件
+// Desc 添加降序排序。
+// column 为空时自动跳过。
+//
+// 示例：
+//
+//	table.Desc("score").Desc("id")
+//	// → ORDER BY score DESC, id DESC
 func (t *SharkTable) Desc(column string) *SharkTable {
 	if !t.isEmpty(column) {
 		t.db = t.db.Order(column + " DESC")
@@ -180,15 +357,12 @@ func (t *SharkTable) Desc(column string) *SharkTable {
 	return t
 }
 
-// FromTo 添加 [from, to) 区间查询条件，value 为空时不添加条件
-func (t *SharkTable) FromTo(column string, from any, to any) *SharkTable {
-	if !t.isEmpty(from) && !t.isEmpty(to) {
-		t.db = t.db.Where(column+" >= ? AND "+column+" < ?", from, to)
-	}
-	return t
-}
-
-// Group 添加分组条件
+// Group 添加分组条件，多个字段以逗号拼接。
+//
+// 示例：
+//
+//	table.Group("category", "status")
+//	// → GROUP BY category, status
 func (t *SharkTable) Group(columns ...string) *SharkTable {
 	if len(columns) == 0 {
 		return t
@@ -197,7 +371,21 @@ func (t *SharkTable) Group(columns ...string) *SharkTable {
 	return t
 }
 
-// Or 添加 OR 条件，builder 为空时不添加条件
+// Or 以 OR 方式添加 sharksql.Builder 构建的条件。
+// builder 为 nil 或 Build 为空时自动跳过。
+// 支持传入多个 builder，之间以 OR 连接。
+//
+// 示例：
+//
+//	// WHERE (name LIKE '%张%') OR (phone LIKE '%138%')
+//	b1 := sharksql.NewBuilder().Like("name", "张")
+//	b2 := sharksql.NewBuilder().Like("phone", "138")
+//	table.Or(b1, b2)
+//
+//	// AND 嵌套 OR：查询待处理或处理中的工单
+//	// WHERE (deleted = 0) AND ((status = 'pending') OR (status = 'in_progress'))
+//	b := sharksql.NewBuilder().Eq("status", "pending").Or(sharksql.NewBuilder().Eq("status", "in_progress"))
+//	table.Eq("deleted", 0).Or(b)
 func (t *SharkTable) Or(builder ...*sharksql.Builder) *SharkTable {
 	if len(builder) == 0 {
 		return t
