@@ -1,0 +1,318 @@
+package test
+
+import (
+	"testing"
+
+	"github.com/lornshark/shark/sharksql"
+)
+
+func TestEq(t *testing.T) {
+	sql, val := sharksql.Eq("status", 1)
+	if sql != "status = ?" {
+		t.Errorf("sql = %s", sql)
+	}
+	if val != 1 {
+		t.Errorf("val = %v", val)
+	}
+}
+
+func TestNeq(t *testing.T) {
+	sql, _ := sharksql.Neq("status", 0)
+	if sql != "status <> ?" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestGt(t *testing.T) {
+	sql, _ := sharksql.Gt("age", 18)
+	if sql != "age > ?" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestGte(t *testing.T) {
+	sql, _ := sharksql.Gte("score", 60)
+	if sql != "score >= ?" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestLt(t *testing.T) {
+	sql, _ := sharksql.Lt("price", 100)
+	if sql != "price < ?" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestLte(t *testing.T) {
+	sql, _ := sharksql.Lte("stock", 50)
+	if sql != "stock <= ?" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestLike(t *testing.T) {
+	sql, val := sharksql.Like("name", "张")
+	if sql != "name LIKE ?" {
+		t.Errorf("sql = %s", sql)
+	}
+	if val != "%张%" {
+		t.Errorf("val = %v, want %%张%%", val)
+	}
+}
+
+func TestNotLike(t *testing.T) {
+	sql, val := sharksql.NotLike("name", "test")
+	if sql != "name NOT LIKE ?" {
+		t.Errorf("sql = %s", sql)
+	}
+	if val != "%test%" {
+		t.Errorf("val = %v", val)
+	}
+}
+
+func TestIn(t *testing.T) {
+	sql, val := sharksql.In("status", []int{1, 2, 3})
+	if sql != "status IN (?)" {
+		t.Errorf("sql = %s", sql)
+	}
+	slice, ok := val.([]int)
+	if !ok || len(slice) != 3 {
+		t.Errorf("val = %v", val)
+	}
+}
+
+func TestNotIn(t *testing.T) {
+	sql, _ := sharksql.NotIn("id", []int64{100, 200})
+	if sql != "id NOT IN (?)" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestIsNull(t *testing.T) {
+	sql := sharksql.IsNull("deleted_at")
+	if sql != "deleted_at IS NULL" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestIsNotNull(t *testing.T) {
+	sql := sharksql.IsNotNull("email")
+	if sql != "email IS NOT NULL" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestAdd(t *testing.T) {
+	sql, val := sharksql.Add("balance", 100)
+	if sql != "balance + ?" {
+		t.Errorf("sql = %s", sql)
+	}
+	if val != 100 {
+		t.Errorf("val = %v", val)
+	}
+}
+
+func TestSub(t *testing.T) {
+	sql, _ := sharksql.Sub("balance", 50)
+	if sql != "balance - ?" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestMul(t *testing.T) {
+	sql, _ := sharksql.Mul("price", 1.1)
+	if sql != "price * ?" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestDiv(t *testing.T) {
+	sql, _ := sharksql.Div("total_score", "count")
+	if sql != "total_score / ?" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestAsc(t *testing.T) {
+	s := sharksql.Asc("created_at")
+	if s != "created_at ASC" {
+		t.Errorf("Asc = %s", s)
+	}
+}
+
+func TestDesc(t *testing.T) {
+	s := sharksql.Desc("amount")
+	if s != "amount DESC" {
+		t.Errorf("Desc = %s", s)
+	}
+}
+
+func TestFromTo(t *testing.T) {
+	sql, from, to := sharksql.FromTo("created_at", "2025-01-01", "2025-02-01")
+	expected := "created_at >= ? AND created_at < ?"
+	if sql != expected {
+		t.Errorf("sql = %s, want %s", sql, expected)
+	}
+	if from != "2025-01-01" || to != "2025-02-01" {
+		t.Errorf("from=%v to=%v", from, to)
+	}
+}
+
+func TestSum(t *testing.T) {
+	s := sharksql.Sum("bet_amount", "win_amount")
+	if s != "sum(bet_amount) as bet_amount, sum(win_amount) as win_amount" {
+		t.Errorf("Sum = %s", s)
+	}
+}
+
+func TestSumAs(t *testing.T) {
+	s := sharksql.SumAs("bet_amount", "total_bet", "win_amount", "total_win")
+	if s != "sum(bet_amount) as total_bet, sum(win_amount) as total_win" {
+		t.Errorf("SumAs = %s", s)
+	}
+}
+
+func TestSumAsOdd(t *testing.T) {
+	s := sharksql.SumAs("a", "b", "c")
+	if s != "" {
+		t.Errorf("奇数参数应返回空: got %s", s)
+	}
+}
+
+func TestCountAs(t *testing.T) {
+	s := sharksql.CountAs("id", "total_count", "user_id", "unique_users")
+	if s != "count(id) as total_count, count(user_id) as unique_users" {
+		t.Errorf("CountAs = %s", s)
+	}
+}
+
+func TestAvg(t *testing.T) {
+	s := sharksql.Avg("math_score", "english_score")
+	if s != "avg(math_score) as math_score, avg(english_score) as english_score" {
+		t.Errorf("Avg = %s", s)
+	}
+}
+
+func TestAvgAs(t *testing.T) {
+	s := sharksql.AvgAs("math_score", "avg_math", "english_score", "avg_english")
+	if s != "avg(math_score) as avg_math, avg(english_score) as avg_english" {
+		t.Errorf("AvgAs = %s", s)
+	}
+}
+
+func TestMax(t *testing.T) {
+	s := sharksql.Max("high_temp", "low_temp")
+	if s != "max(high_temp) as high_temp, max(low_temp) as low_temp" {
+		t.Errorf("Max = %s", s)
+	}
+}
+
+func TestMaxAs(t *testing.T) {
+	s := sharksql.MaxAs("high_temp", "max_high", "low_temp", "max_low")
+	if s != "max(high_temp) as max_high, max(low_temp) as max_low" {
+		t.Errorf("MaxAs = %s", s)
+	}
+}
+
+func TestMin(t *testing.T) {
+	s := sharksql.Min("price")
+	if s != "min(price) as price" {
+		t.Errorf("Min = %s", s)
+	}
+}
+
+func TestMinAs(t *testing.T) {
+	s := sharksql.MinAs("price", "min_price", "discount", "min_discount")
+	if s != "min(price) as min_price, min(discount) as min_discount" {
+		t.Errorf("MinAs = %s", s)
+	}
+}
+
+func TestColumn(t *testing.T) {
+	s := sharksql.Column("users", "id")
+	if s != "users.id" {
+		t.Errorf("Column = %s", s)
+	}
+}
+
+func TestColumnAs(t *testing.T) {
+	s := sharksql.ColumnAs("users", "id", "user_id")
+	if s != "users.id as user_id" {
+		t.Errorf("ColumnAs = %s", s)
+	}
+}
+
+func TestJsonPath(t *testing.T) {
+	p := sharksql.JsonPath("user", "address", "city")
+	if p != "$.user.address.city" {
+		t.Errorf("JsonPath = %s", p)
+	}
+}
+
+func TestJsonPathSingle(t *testing.T) {
+	p := sharksql.JsonPath("name")
+	if p != "$.name" {
+		t.Errorf("JsonPath single = %s", p)
+	}
+}
+
+func TestJsonSearchOne(t *testing.T) {
+	sql, data := sharksql.JsonSearchOne("tags", "vip")
+	if sql != "JSON_SEARCH(tags, 'one', ?) IS NOT NULL" {
+		t.Errorf("sql = %s", sql)
+	}
+	if data != "%vip%" {
+		t.Errorf("data = %s", data)
+	}
+}
+
+func TestJsonContains(t *testing.T) {
+	sql, data := sharksql.JsonContains("roles", `"admin"`)
+	if sql != "JSON_CONTAINS(roles, ?)" {
+		t.Errorf("sql = %s", sql)
+	}
+	if data != `"admin"` {
+		t.Errorf("data = %s", data)
+	}
+}
+
+func TestJsonSet(t *testing.T) {
+	sql, args := sharksql.JsonSet("metadata", "$.age", 25)
+	if sql != "JSON_SET(COALESCE(metadata, JSON_OBJECT()), '$.age', ?)" {
+		t.Errorf("sql = %s", sql)
+	}
+	if len(args) != 1 || args[0] != 25 {
+		t.Errorf("args = %v", args)
+	}
+}
+
+func TestJsonSetObject(t *testing.T) {
+	sql, args := sharksql.JsonSetObject("metadata", "$.vip", map[string]any{"level": 3})
+	if sql != "JSON_SET(COALESCE(metadata, JSON_OBJECT()), '$.vip', CONVERT(?,JSON))" {
+		t.Errorf("sql = %s", sql)
+	}
+	if len(args) != 1 {
+		t.Errorf("args length = %d, want 1", len(args))
+	}
+}
+
+func TestJsonArrayAppend(t *testing.T) {
+	sql, args := sharksql.JsonArrayAppend("event_ids", 100, 200, 300)
+	if sql != "JSON_ARRAY_APPEND(COALESCE(event_ids, JSON_ARRAY()),'$', ?,'$', ?,'$', ?)" {
+		t.Errorf("sql = %s", sql)
+	}
+	if len(args) != 3 {
+		t.Errorf("args length = %d, want 3", len(args))
+	}
+}
+
+func TestJsonArrayAppendObject(t *testing.T) {
+	sql, args := sharksql.JsonArrayAppendObject("tags", "vip", "premium")
+	if sql != "JSON_ARRAY_APPEND(COALESCE(tags, JSON_ARRAY()),'$', CAST(? AS JSON),'$', CAST(? AS JSON))" {
+		t.Errorf("sql = %s", sql)
+	}
+	if len(args) != 2 {
+		t.Errorf("args length = %d, want 2", len(args))
+	}
+}
