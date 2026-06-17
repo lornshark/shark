@@ -354,3 +354,11 @@ func JsonPath(path ...string) string {
 	}
 	return jsonPath
 }
+
+func Column(table string, column string) string {
+	return fmt.Sprintf("%v.%v", table, column)
+}
+
+func ColumnAs(table string, column string, as string) string {
+	return fmt.Sprintf("%v.%v as %v", table, column, as)
+}
