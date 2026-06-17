@@ -38,6 +38,28 @@ type Options struct {
 	http          int
 }
 
+func (o *Options) read_slices(v *viper.Viper, key string) []string {
+	ss := v.GetStringSlice(key)
+	var result []string
+	for _, s := range ss {
+		for _, sub := range strings.Split(s, ",") {
+			if t := strings.TrimSpace(sub); t != "" {
+				result = append(result, t)
+			}
+		}
+	}
+	if len(result) == 0 {
+		if s := strings.TrimSpace(v.GetString(key)); s != "" {
+			for _, sub := range strings.Split(s, ",") {
+				if t := strings.TrimSpace(sub); t != "" {
+					result = append(result, t)
+				}
+			}
+		}
+	}
+	return result
+}
+
 func NewOption(project string, name string) *Options {
 	v := viper.New()
 	v.SetConfigName("config")
@@ -66,116 +88,119 @@ func NewOption(project string, name string) *Options {
 	options.grpc = v.GetInt("grpc")
 	options.health = v.GetInt("health")
 	options.http = v.GetInt("http")
-	if strings.TrimSpace(v.GetString("redis_cluster.host")) != "" {
-		options.redis_cluster = &sharkredis.Config{
-			Host:        strings.TrimSpace(v.GetString("redis_cluster.host")),
-			Port:        v.GetInt("redis_cluster.port"),
-			Password:    strings.TrimSpace(v.GetString("redis_cluster.password")),
-			ReplaceFrom: strings.TrimSpace(v.GetString("redis_cluster.replace_from")),
-			ReplaceTo:   strings.TrimSpace(v.GetString("redis_cluster.replace_to")),
-		}
-	}
-	if strings.TrimSpace(v.GetString("redis_client.host")) != "" {
-		options.redis_client = &sharkredis.Config{
-			Host:        strings.TrimSpace(v.GetString("redis_client.host")),
-			Port:        v.GetInt("redis_client.port"),
-			Password:    strings.TrimSpace(v.GetString("redis_client.password")),
-			ReplaceFrom: strings.TrimSpace(v.GetString("redis_client.replace_from")),
-			ReplaceTo:   strings.TrimSpace(v.GetString("redis_client.replace_to")),
-		}
-	}
-	if strings.TrimSpace(v.GetString("redis.host")) != "" {
-		options.redis = &sharkredis.Config{
-			Host:        strings.TrimSpace(v.GetString("redis.host")),
-			Port:        v.GetInt("redis.port"),
-			Password:    strings.TrimSpace(v.GetString("redis.password")),
-			ReplaceFrom: strings.TrimSpace(v.GetString("redis.replace_from")),
-			ReplaceTo:   strings.TrimSpace(v.GetString("redis.replace_to")),
-		}
-	}
-	if strings.TrimSpace(v.GetString("db.host")) != "" {
-		options.db = &sharkdb.Config{
-			Host:     strings.TrimSpace(v.GetString("db.host")),
-			Port:     v.GetInt("db.port"),
-			User:     strings.TrimSpace(v.GetString("db.user")),
-			Password: strings.TrimSpace(v.GetString("db.password")),
-			Database: strings.TrimSpace(v.GetString("db.database")),
-		}
-	}
-	if strings.TrimSpace(v.GetString("elastic.host")) != "" {
-		options.elastic = &sharkelastic.Config{
-			Host:     strings.TrimSpace(v.GetString("elastic.host")),
-			User:     strings.TrimSpace(v.GetString("elastic.user")),
-			Password: strings.TrimSpace(v.GetString("elastic.password")),
-		}
-	}
-	if strings.TrimSpace(v.GetString("minio.host")) != "" {
-		options.minio = &sharkminio.Config{
-			Host:     strings.TrimSpace(v.GetString("minio.host")),
-			Port:     v.GetInt("minio.port"),
-			User:     strings.TrimSpace(v.GetString("minio.user")),
-			Password: strings.TrimSpace(v.GetString("minio.password")),
-		}
-	}
-	if strings.TrimSpace(v.GetString("kafka.host")) != "" {
-		options.kafka = &sharkkafka.Config{
-			Host:     strings.TrimSpace(v.GetString("kafka.host")),
-			Port:     v.GetInt("kafka.port"),
-			User:     strings.TrimSpace(v.GetString("kafka.user")),
-			Password: strings.TrimSpace(v.GetString("kafka.password")),
-		}
-	}
-	if strings.TrimSpace(v.GetString("mongodb.host")) != "" {
-		options.mongodb = &sharkmongodb.Config{
-			Host:     strings.TrimSpace(v.GetString("mongodb.host")),
-			Port:     v.GetInt("mongodb.port"),
-			User:     strings.TrimSpace(v.GetString("mongodb.user")),
-			Password: strings.TrimSpace(v.GetString("mongodb.password")),
-		}
-	}
-	rmqhosts := v.GetStringSlice("rabbitmq.host")
-	// viper GetStringSlice 从环境变量读取时不分割逗号，需要手动处理
-	var splitHosts []string
-	for _, h := range rmqhosts {
-		for _, sub := range strings.Split(h, ",") {
-			if s := strings.TrimSpace(sub); s != "" {
-				splitHosts = append(splitHosts, s)
+	{
+		hosts := options.read_slices(v, "redis_cluster.host")
+		if len(hosts) > 0 {
+			options.redis_cluster = &sharkredis.Config{
+				Host:        hosts,
+				Password:    strings.TrimSpace(v.GetString("redis_cluster.password")),
+				ReplaceFrom: strings.TrimSpace(v.GetString("redis_cluster.replace_from")),
+				ReplaceTo:   strings.TrimSpace(v.GetString("redis_cluster.replace_to")),
 			}
 		}
 	}
-	rmqhosts = splitHosts
-	if len(rmqhosts) == 0 {
-		if s := strings.TrimSpace(v.GetString("rabbitmq.host")); s != "" {
-			sp := strings.Split(s, ",")
-			for _, h := range sp {
-				if strings.TrimSpace(h) != "" {
-					rmqhosts = append(rmqhosts, strings.TrimSpace(h))
-				}
+	{
+		hosts := options.read_slices(v, "redis_client.host")
+		if len(hosts) > 0 {
+			options.redis_client = &sharkredis.Config{
+				Host:        hosts,
+				Password:    strings.TrimSpace(v.GetString("redis_client.password")),
+				ReplaceFrom: strings.TrimSpace(v.GetString("redis_client.replace_from")),
+				ReplaceTo:   strings.TrimSpace(v.GetString("redis_client.replace_to")),
 			}
 		}
 	}
-	if len(rmqhosts) > 0 {
-		options.rabbitmq = &sharkrabbitmq.Config{
-			Host:     rmqhosts,
-			User:     strings.TrimSpace(v.GetString("rabbitmq.user")),
-			Password: strings.TrimSpace(v.GetString("rabbitmq.password")),
+	{
+		hosts := options.read_slices(v, "redis.host")
+		if len(hosts) > 0 {
+			options.redis = &sharkredis.Config{
+				Host:        hosts,
+				Password:    strings.TrimSpace(v.GetString("redis.password")),
+				ReplaceFrom: strings.TrimSpace(v.GetString("redis.replace_from")),
+				ReplaceTo:   strings.TrimSpace(v.GetString("redis.replace_to")),
+			}
 		}
 	}
-	if strings.TrimSpace(v.GetString("risingwave.host")) != "" {
-		options.risingwave = &sharkrisingwave.Config{
-			Host:     strings.TrimSpace(v.GetString("risingwave.host")),
-			Port:     v.GetInt("risingwave.port"),
-			User:     strings.TrimSpace(v.GetString("risingwave.user")),
-			Password: strings.TrimSpace(v.GetString("risingwave.password")),
-			Database: strings.TrimSpace(v.GetString("risingwave.database")),
+	{
+		hosts := options.read_slices(v, "db.host")
+		if len(hosts) > 0 {
+			options.db = &sharkdb.Config{
+				Host:     hosts[0],
+				User:     strings.TrimSpace(v.GetString("db.user")),
+				Password: strings.TrimSpace(v.GetString("db.password")),
+				Database: strings.TrimSpace(v.GetString("db.database")),
+			}
 		}
 	}
-	if strings.TrimSpace(v.GetString("etcd.host")) != "" {
-		options.etcd = &sharketcd.Config{
-			Host:     strings.TrimSpace(v.GetString("etcd.host")),
-			Port:     v.GetInt("etcd.port"),
-			User:     strings.TrimSpace(v.GetString("etcd.user")),
-			Password: strings.TrimSpace(v.GetString("etcd.password")),
+	{
+		hosts := options.read_slices(v, "elastic.host")
+		if len(hosts) > 0 {
+			options.elastic = &sharkelastic.Config{
+				Host:     hosts,
+				User:     strings.TrimSpace(v.GetString("elastic.user")),
+				Password: strings.TrimSpace(v.GetString("elastic.password")),
+			}
+		}
+	}
+	{
+		hosts := options.read_slices(v, "minio.host")
+		if len(hosts) > 0 {
+			options.minio = &sharkminio.Config{
+				Host:     hosts[0],
+				User:     strings.TrimSpace(v.GetString("minio.user")),
+				Password: strings.TrimSpace(v.GetString("minio.password")),
+			}
+		}
+	}
+	{
+		hosts := options.read_slices(v, "kafka.host")
+		if len(hosts) > 0 {
+			options.kafka = &sharkkafka.Config{
+				Host:     hosts,
+				User:     strings.TrimSpace(v.GetString("kafka.user")),
+				Password: strings.TrimSpace(v.GetString("kafka.password")),
+			}
+		}
+	}
+	{
+		hosts := options.read_slices(v, "mongodb.host")
+		if len(hosts) > 0 {
+			options.mongodb = &sharkmongodb.Config{
+				Host:     hosts[0],
+				User:     strings.TrimSpace(v.GetString("mongodb.user")),
+				Password: strings.TrimSpace(v.GetString("mongodb.password")),
+			}
+		}
+	}
+	{
+		hosts := options.read_slices(v, "rabbitmq.host")
+		if len(hosts) > 0 {
+			options.rabbitmq = &sharkrabbitmq.Config{
+				Host:     hosts,
+				User:     strings.TrimSpace(v.GetString("rabbitmq.user")),
+				Password: strings.TrimSpace(v.GetString("rabbitmq.password")),
+			}
+		}
+	}
+	{
+		hosts := options.read_slices(v, "risingwave.host")
+		if len(hosts) > 0 {
+			options.risingwave = &sharkrisingwave.Config{
+				Host:     hosts[0],
+				User:     strings.TrimSpace(v.GetString("risingwave.user")),
+				Password: strings.TrimSpace(v.GetString("risingwave.password")),
+				Database: strings.TrimSpace(v.GetString("risingwave.database")),
+			}
+		}
+	}
+	{
+		hosts := options.read_slices(v, "etcd.host")
+		if len(hosts) > 0 {
+			options.etcd = &sharketcd.Config{
+				Host:     hosts,
+				User:     strings.TrimSpace(v.GetString("etcd.user")),
+				Password: strings.TrimSpace(v.GetString("etcd.password")),
+			}
 		}
 	}
 	return options

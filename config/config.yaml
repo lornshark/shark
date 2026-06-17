@@ -5,54 +5,47 @@ pprof: 3931
 timer: true
 
 kafka:
-  host: 192.168.191.100
-  port: 9094
+  host: 192.168.191.100:9094
   user: root
   password: CEki57pxTJyYaLD
 
 redis:
-  host: 192.168.191.100
-  port: 6389
+  host: 192.168.191.100:6389
   password: CEki57pxTJyYaLD
 
 db:
-  host: 192.168.191.100
-  port: 4000
+  host: 192.168.191.100:4000
   user: root
   password: CEki57pxTJyYaLD
   database: kgame
 
 rabbitmq:
-  host: "192.168.191.100:5674,192.168.191.100:5675"
+  host: 192.168.191.100:5674,192.168.191.100:5675
   user: root
   password: CEki57pxTJyYaLD
 
 risingwave:
-  host: 192.168.191.100
-  port: 4566
+  host: 192.168.191.100:4566
   user: root
   password: CEki57pxTJyYaLD
   database: kgame
 
 etcd:
-  host: 192.168.191.100
-  port: 3379
+  host: 192.168.191.100:3379
   user: root
   password: CEki57pxTJyYaLD
 
 elastic:
-  host: http://192.168.191.100:9200
+  host: "http://192.168.191.100:9200"
   user: elastic
   password: CEki57pxTJyYaLD
 
 mongodb:
-  host: 192.168.191.100
-  port: 27017
+  host: 192.168.191.100:27017
   user: root
   password: CEki57pxTJyYaLD
 
 minio:
-  host: 192.168.191.100
-  port: 9000
+  host: 192.168.191.100:9000
   user: root
   password: CEki57pxTJyYaLD

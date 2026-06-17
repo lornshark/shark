@@ -33,5 +33,4 @@ type Test struct {
 }
 
 func (t *Test) Start() {
-
 }

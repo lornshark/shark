@@ -131,24 +131,24 @@ func New(options *Options) (*App, error) {
 		}
 	}
 	if options.kafka != nil {
-		app.Logger.Info("连接kafka成功", zap.String("host", options.kafka.Host), zap.Int("port", options.kafka.Port))
+		app.Logger.Info("连接kafka成功", zap.Strings("host", options.kafka.Host))
 	}
 	if options.redis != nil {
 		cluster, err := sharkredis.NewCluster(app.Context, options.redis)
 		if err == nil {
 			app.RedisCluster = cluster
-			app.Logger.Info("连接redis cluster成功", zap.String("host", options.redis.Host), zap.Int("port", options.redis.Port))
+			app.Logger.Info("连接redis cluster成功", zap.Strings("host", options.redis.Host))
 		} else {
 			if strings.Contains(err.Error(), "cluster support disabled") {
 				client, err := sharkredis.NewClient(app.Context, options.redis)
 				if err != nil {
-					app.Logger.Error("连接redis client失败", zap.String("host", options.redis.Host), zap.Int("port", options.redis.Port), zap.Error(err))
+					app.Logger.Error("连接redis client失败", zap.Strings("host", options.redis.Host), zap.Error(err))
 					return nil, err
 				}
 				app.RedisClient = client
-				app.Logger.Info("连接redis client成功", zap.String("host", options.redis.Host), zap.Int("port", options.redis.Port))
+				app.Logger.Info("连接redis client成功", zap.Strings("host", options.redis.Host))
 			} else {
-				app.Logger.Error("连接redis cluster失败", zap.String("host", options.redis.Host), zap.Int("port", options.redis.Port), zap.Error(err))
+				app.Logger.Error("连接redis cluster失败", zap.Strings("host", options.redis.Host), zap.Error(err))
 				return nil, err
 			}
 		}
@@ -157,37 +157,37 @@ func New(options *Options) (*App, error) {
 	if options.redis_cluster != nil && app.RedisCluster == nil {
 		redis, err := sharkredis.NewCluster(app.Context, options.redis_cluster)
 		if err != nil {
-			app.Logger.Error("连接redis cluster失败", zap.String("host", options.redis_cluster.Host), zap.Int("port", options.redis_cluster.Port), zap.Error(err))
+			app.Logger.Error("连接redis cluster失败", zap.Strings("host", options.redis_cluster.Host), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接redis cluster成功", zap.String("host", options.redis_cluster.Host), zap.Int("port", options.redis_cluster.Port))
+		app.Logger.Info("连接redis cluster成功", zap.Strings("host", options.redis_cluster.Host))
 		app.RedisCluster = redis
 	}
 	if options.redis_client != nil && app.RedisClient == nil {
 		redis, err := sharkredis.NewClient(app.Context, options.redis_client)
 		if err != nil {
-			app.Logger.Error("连接redis client失败", zap.String("host", options.redis_client.Host), zap.Int("port", options.redis_client.Port), zap.Error(err))
+			app.Logger.Error("连接redis client失败", zap.Strings("host", options.redis_client.Host), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接redis client成功", zap.String("host", options.redis_client.Host), zap.Int("port", options.redis_client.Port))
+		app.Logger.Info("连接redis client成功", zap.Strings("host", options.redis_client.Host))
 		app.RedisClient = redis
 	}
 	if options.db != nil {
 		db, err := sharkdb.NewDb(app.Context, app.Logger, options.db)
 		if err != nil {
-			app.Logger.Error("连接db失败", zap.String("host", options.db.Host), zap.Int("port", options.db.Port), zap.String("database", options.db.Database), zap.Error(err))
+			app.Logger.Error("连接db失败", zap.String("host", options.db.Host), zap.String("database", options.db.Database), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接db成功", zap.String("host", options.db.Host), zap.Int("port", options.db.Port), zap.String("database", options.db.Database))
+		app.Logger.Info("连接db成功", zap.String("host", options.db.Host), zap.String("database", options.db.Database))
 		app.Db = db
 	}
 	if options.elastic != nil {
 		elastic, err := sharkelastic.New(app.Context, options.elastic)
 		if err != nil {
-			app.Logger.Error("连接elastic失败", zap.String("host", options.elastic.Host), zap.Error(err))
+			app.Logger.Error("连接elastic失败", zap.Strings("host", options.elastic.Host), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接elastic成功", zap.String("host", options.elastic.Host))
+		app.Logger.Info("连接elastic成功", zap.Strings("host", options.elastic.Host))
 		app.Elastic = elastic
 	}
 	if options.rabbitmq != nil {
@@ -204,37 +204,37 @@ func New(options *Options) (*App, error) {
 	if options.risingwave != nil {
 		rw, err := sharkrisingwave.New(app.Context, app.Logger, options.risingwave)
 		if err != nil {
-			app.Logger.Error("连接risingwave失败", zap.String("host", options.risingwave.Host), zap.Int("port", options.risingwave.Port), zap.String("database", options.risingwave.Database), zap.Error(err))
+			app.Logger.Error("连接risingwave失败", zap.String("host", options.risingwave.Host), zap.String("database", options.risingwave.Database), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接risingwave成功", zap.String("host", options.risingwave.Host), zap.Int("port", options.risingwave.Port), zap.String("database", options.risingwave.Database))
+		app.Logger.Info("连接risingwave成功", zap.String("host", options.risingwave.Host), zap.String("database", options.risingwave.Database))
 		app.RisingWave = rw
 	}
 	if options.etcd != nil {
 		etcd, err := sharketcd.New(app.Context, options.etcd)
 		if err != nil {
-			app.Logger.Error("连接etcd失败", zap.String("host", options.etcd.Host), zap.Int("port", options.etcd.Port), zap.Error(err))
+			app.Logger.Error("连接etcd失败", zap.Strings("host", options.etcd.Host), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接etcd成功", zap.String("host", options.etcd.Host), zap.Int("port", options.etcd.Port))
+		app.Logger.Info("连接etcd成功", zap.Strings("host", options.etcd.Host))
 		app.Etcd = etcd
 	}
 	if options.mongodb != nil {
 		mongodb, err := sharkmongodb.New(app.Context, options.mongodb)
 		if err != nil {
-			app.Logger.Error("连接mongodb失败", zap.String("host", options.mongodb.Host), zap.Int("port", options.mongodb.Port), zap.Error(err))
+			app.Logger.Error("连接mongodb失败", zap.String("host", options.mongodb.Host), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接mongodb成功", zap.String("host", options.mongodb.Host), zap.Int("port", options.mongodb.Port))
+		app.Logger.Info("连接mongodb成功", zap.String("host", options.mongodb.Host))
 		app.Mongodb = mongodb
 	}
 	if options.minio != nil {
 		client, err := sharkminio.New(app.Context, options.minio)
 		if err != nil {
-			app.Logger.Error("连接minio失败", zap.String("host", options.minio.Host), zap.Int("port", options.minio.Port), zap.Error(err))
+			app.Logger.Error("连接minio失败", zap.String("host", options.minio.Host), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接minio成功", zap.String("host", options.minio.Host), zap.Int("port", options.minio.Port))
+		app.Logger.Info("连接minio成功", zap.String("host", options.minio.Host))
 		app.Minio = client
 	}
 	if options.timer {
