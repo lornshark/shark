@@ -15,7 +15,7 @@ type testItem struct {
 
 func TestCacheGetHit(t *testing.T) {
 	var dbCalled atomic.Bool
-	cache := sharkcache.New[testItem](
+	cache := sharkcache.New(
 		func(args ...any) (*testItem, error) {
 			dbCalled.Store(true)
 			return &testItem{ID: args[0].(int64), Name: "from-db"}, nil
@@ -34,7 +34,7 @@ func TestCacheGetHit(t *testing.T) {
 }
 
 func TestCacheGetNotFound(t *testing.T) {
-	cache := sharkcache.New[testItem](
+	cache := sharkcache.New(
 		func(args ...any) (*testItem, error) {
 			return nil, nil // seeker 返回 nil，表示未命中
 		},
@@ -47,7 +47,7 @@ func TestCacheGetNotFound(t *testing.T) {
 
 func TestCacheGetMultiSeeker(t *testing.T) {
 	var firstCalled, secondCalled atomic.Bool
-	cache := sharkcache.New[testItem](
+	cache := sharkcache.New(
 		// seeker 0: 返回 nil（未命中）
 		func(args ...any) (*testItem, error) {
 			firstCalled.Store(true)
@@ -76,7 +76,7 @@ func TestCacheGetMultiSeeker(t *testing.T) {
 
 func TestCacheGetErrorSkip(t *testing.T) {
 	var dbCalled atomic.Bool
-	cache := sharkcache.New[testItem](
+	cache := sharkcache.New(
 		// seeker 0: 返回错误（如 Redis 连不上）
 		func(args ...any) (*testItem, error) {
 			return nil, errors.New("redis connection failed")
@@ -100,7 +100,7 @@ func TestCacheGetErrorSkip(t *testing.T) {
 }
 
 func TestCacheGetAllSeekersFail(t *testing.T) {
-	cache := sharkcache.New[testItem](
+	cache := sharkcache.New(
 		func(args ...any) (*testItem, error) { return nil, errors.New("err1") },
 		func(args ...any) (*testItem, error) { return nil, errors.New("err2") },
 	)
@@ -111,7 +111,7 @@ func TestCacheGetAllSeekersFail(t *testing.T) {
 }
 
 func TestCacheMultipleArgs(t *testing.T) {
-	cache := sharkcache.New[testItem](
+	cache := sharkcache.New(
 		func(args ...any) (*testItem, error) {
 			id := args[0].(int64)
 			_ = args[1].(int64) // orgID
