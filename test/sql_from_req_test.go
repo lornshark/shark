@@ -8,167 +8,236 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ========== Where 测试 ==========
+// ========== Where 测试 (sql tag) ==========
 
-func TestWherePtrString(t *testing.T) {
+func TestWhereAllFieldsSet(t *testing.T) {
 	type Req struct {
-		Name *string `json:"name"`
+		UserId *int64  `sql:"user_id = ?"`
+		Name   *string `sql:"name LIKE ?"`
 	}
-	n := "张三"
-	req := Req{Name: &n}
+	userId := int64(100)
+	name := "张三"
+	req := Req{UserId: &userId, Name: &name}
 	sql, args := sharksql.Where(req)
-	if sql != "name = ?" {
-		t.Errorf("sql = %s, want 'name = ?'", sql)
+	expected := "user_id = ? AND name LIKE ?"
+	if sql != expected {
+		t.Errorf("sql = %s, want %s", sql, expected)
 	}
-	if len(args) != 1 || args[0] != "张三" {
-		t.Errorf("args = %v", args)
+	if len(args) != 2 {
+		t.Fatalf("args count = %d, want 2", len(args))
+	}
+	if args[0] != int64(100) {
+		t.Errorf("args[0] = %v, want 100", args[0])
+	}
+	if args[1] != "%张三%" {
+		t.Errorf("args[1] = %v, want %%张三%%", args[1])
 	}
 }
 
-func TestWherePtrNil(t *testing.T) {
+func TestWhereNilPointerIgnored(t *testing.T) {
 	type Req struct {
-		Name *string `json:"name"`
+		UserId *int64  `sql:"user_id = ?"`
+		Name   *string `sql:"name LIKE ?"`
 	}
-	req := Req{Name: nil}
+	name := "张三"
+	req := Req{UserId: nil, Name: &name}
+	sql, args := sharksql.Where(req)
+	expected := "name LIKE ?"
+	if sql != expected {
+		t.Errorf("sql = %s, want %s", sql, expected)
+	}
+	if len(args) != 1 {
+		t.Fatalf("args count = %d, want 1", len(args))
+	}
+}
+
+func TestWhereEmptySliceIgnored(t *testing.T) {
+	type Req struct {
+		Name   *string `sql:"name LIKE ?"`
+		Status []int   `sql:"status in (?)"`
+	}
+	name := "张三"
+	req := Req{Name: &name, Status: []int{}}
+	sql, args := sharksql.Where(req)
+	expected := "name LIKE ?"
+	if sql != expected {
+		t.Errorf("sql = %s, want %s", sql, expected)
+	}
+	if len(args) != 1 {
+		t.Fatalf("args count = %d, want 1", len(args))
+	}
+}
+
+func TestWhereAllNilOrEmpty(t *testing.T) {
+	type Req struct {
+		UserId *int64  `sql:"user_id = ?"`
+		Name   *string `sql:"name LIKE ?"`
+	}
+	req := Req{}
 	sql, args := sharksql.Where(req)
 	if sql != "" || len(args) != 0 {
 		t.Errorf("sql = %s, want ''", sql)
 	}
 }
 
-func TestWhereSlicePtr(t *testing.T) {
+func TestWhereOnlyIn(t *testing.T) {
 	type Req struct {
-		Ids *[]int `json:"ids"`
+		Status []int `sql:"status in (?)"`
 	}
-	ids := []int{1, 2, 3}
-	req := Req{Ids: &ids}
+	req := Req{Status: []int{1, 5, 10}}
 	sql, args := sharksql.Where(req)
-	if sql != "ids IN (?)" {
-		t.Errorf("sql = %s, want 'ids IN (?)'", sql)
+	expected := "status in (?)"
+	if sql != expected {
+		t.Errorf("sql = %s, want %s", sql, expected)
 	}
 	if len(args) != 1 {
-		t.Fatalf("args count = %d", len(args))
+		t.Fatalf("args count = %d, want 1", len(args))
 	}
 }
 
-func TestWhereSlicePtrNil(t *testing.T) {
+func TestWhereNotIn(t *testing.T) {
 	type Req struct {
-		Ids *[]int `json:"ids"`
+		ExcludeId []int64 `sql:"id NOT IN (?)"`
 	}
-	req := Req{Ids: nil}
+	req := Req{ExcludeId: []int64{100, 200}}
+	sql, args := sharksql.Where(req)
+	expected := "id NOT IN (?)"
+	if sql != expected {
+		t.Errorf("sql = %s, want %s", sql, expected)
+	}
+	if len(args) != 1 {
+		t.Fatalf("args count = %d, want 1", len(args))
+	}
+}
+
+func TestWhereNonPointerIgnored(t *testing.T) {
+	type NonPtrReq struct {
+		Age int `sql:"age = ?"`
+	}
+	req := NonPtrReq{Age: 18}
 	sql, _ := sharksql.Where(req)
 	if sql != "" {
 		t.Errorf("sql = %s, want ''", sql)
 	}
 }
 
-func TestWhereMapPtrJSON(t *testing.T) {
-	type Req struct {
-		Tags *map[string]any `json:"tags"`
+func TestWhereNoSqlTagIgnored(t *testing.T) {
+	type NoSqlTagReq struct {
+		Status *int    `json:"status"`
+		Name   *string `sql:"name LIKE ?"`
 	}
-	m := map[string]any{"color": "red"}
-	req := Req{Tags: &m}
+	name := "hello"
+	req := NoSqlTagReq{Status: nil, Name: &name}
 	sql, args := sharksql.Where(req)
-	if sql != "tags = ?" {
-		t.Errorf("sql = %s", sql)
-	}
-	if len(args) != 1 {
-		t.Fatalf("args count = %d", len(args))
-	}
-	s, ok := args[0].(string)
-	if !ok {
-		t.Fatalf("args[0] not string: %T", args[0])
-	}
-	var mm map[string]any
-	json.Unmarshal([]byte(s), &mm)
-	if mm["color"] != "red" {
-		t.Errorf("color = %v", mm["color"])
-	}
-}
-
-func TestWherePtrStructJSON(t *testing.T) {
-	type Addr struct {
-		City string `json:"city"`
-	}
-	type Req struct {
-		Addr *Addr `json:"addr"`
-	}
-	req := Req{Addr: &Addr{City: "北京"}}
-	sql, args := sharksql.Where(req)
-	if sql != "addr = ?" {
-		t.Errorf("sql = %s", sql)
-	}
-	if len(args) != 1 {
-		t.Fatalf("args count = %d", len(args))
-	}
-	s, _ := args[0].(string)
-	var a Addr
-	json.Unmarshal([]byte(s), &a)
-	if a.City != "北京" {
-		t.Errorf("City = %s", a.City)
-	}
-}
-
-func TestWhereDecimalNotJSON(t *testing.T) {
-	type Req struct {
-		Amount *decimal.Decimal `json:"amount"`
-	}
-	d := decimal.NewFromFloat(99.99)
-	req := Req{Amount: &d}
-	sql, args := sharksql.Where(req)
-	if sql != "amount = ?" {
-		t.Errorf("sql = %s", sql)
-	}
-	dd, ok := args[0].(decimal.Decimal)
-	if !ok || !dd.Equals(d) {
-		t.Errorf("args[0] = %v", args[0])
-	}
-}
-
-func TestWhereNonPtrIgnored(t *testing.T) {
-	type Req struct {
-		Age int `json:"age"`
-	}
-	req := Req{Age: 18}
-	sql, _ := sharksql.Where(req)
-	if sql != "" {
-		t.Errorf("sql = %s, want ''", sql)
-	}
-}
-
-func TestWhereNoJsonTagIgnored(t *testing.T) {
-	type Req struct {
-		Name *string `json:"name"`
-		Xxx  *string
-	}
-	n := "hello"
-	req := Req{Name: &n, Xxx: &n}
-	sql, args := sharksql.Where(req)
-	if sql != "name = ?" || args[0] != "hello" {
+	expected := "name LIKE ?"
+	if sql != expected || args[0] != "%hello%" {
 		t.Errorf("sql = %s, args = %v", sql, args)
 	}
 }
 
-func TestWhereMixed(t *testing.T) {
+func TestWhereGt(t *testing.T) {
 	type Req struct {
-		UserId *int64  `json:"user_id"`
-		Name   *string `json:"name"`
-		Ids    *[]int  `json:"ids"`
+		Age *int `sql:"age > ?"`
 	}
-	uid := int64(1)
-	n := "张三"
-	ids := []int{1, 2}
-	req := Req{UserId: &uid, Name: &n, Ids: &ids}
+	age := 18
+	req := Req{Age: &age}
 	sql, args := sharksql.Where(req)
-	if sql != "user_id = ? AND name = ? AND ids IN (?)" {
-		t.Errorf("sql = %s", sql)
-	}
-	if len(args) != 3 {
-		t.Errorf("args count = %d, want 3", len(args))
+	expected := "age > ?"
+	if sql != expected || args[0] != 18 {
+		t.Errorf("sql = %s, args = %v", sql, args)
 	}
 }
 
-// ========== ToUpdate 测试 ==========
+func TestWhereGte(t *testing.T) {
+	type Req struct {
+		Score *int `sql:"score >= ?"`
+	}
+	score := 60
+	req := Req{Score: &score}
+	sql, args := sharksql.Where(req)
+	expected := "score >= ?"
+	if sql != expected || args[0] != 60 {
+		t.Errorf("sql = %s, args = %v", sql, args)
+	}
+}
+
+func TestWhereLt(t *testing.T) {
+	type Req struct {
+		Price *int `sql:"price < ?"`
+	}
+	price := 5000
+	req := Req{Price: &price}
+	sql, args := sharksql.Where(req)
+	expected := "price < ?"
+	if sql != expected || args[0] != 5000 {
+		t.Errorf("sql = %s, args = %v", sql, args)
+	}
+}
+
+func TestWhereLte(t *testing.T) {
+	type Req struct {
+		Stock *int `sql:"stock <= ?"`
+	}
+	stock := 10
+	req := Req{Stock: &stock}
+	sql, args := sharksql.Where(req)
+	expected := "stock <= ?"
+	if sql != expected || args[0] != 10 {
+		t.Errorf("sql = %s, args = %v", sql, args)
+	}
+}
+
+func TestWhereNeq(t *testing.T) {
+	type Req struct {
+		Deleted *int `sql:"deleted <> ?"`
+	}
+	deleted := 1
+	req := Req{Deleted: &deleted}
+	sql, args := sharksql.Where(req)
+	expected := "deleted <> ?"
+	if sql != expected || args[0] != 1 {
+		t.Errorf("sql = %s, args = %v", sql, args)
+	}
+}
+
+func TestWhereLikeICaseLower(t *testing.T) {
+	type Req struct {
+		Name *string `sql:"name like ?"`
+	}
+	name := "test"
+	req := Req{Name: &name}
+	sql, args := sharksql.Where(req)
+	expected := "name like ?"
+	if sql != expected || args[0] != "%test%" {
+		t.Errorf("sql = %s, args = %v", sql, args)
+	}
+}
+
+func TestWhereInICase(t *testing.T) {
+	type Req struct {
+		Ids []int `sql:"id in (?)"`
+	}
+	req := Req{Ids: []int{1, 2}}
+	sql, args := sharksql.Where(req)
+	expected := "id in (?)"
+	if sql != expected || len(args) != 1 {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestWhereNotInICase(t *testing.T) {
+	type Req struct {
+		Ids []int `sql:"id not in (?)"`
+	}
+	req := Req{Ids: []int{5, 6}}
+	sql, args := sharksql.Where(req)
+	expected := "id not in (?)"
+	if sql != expected || len(args) != 1 {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+// ========== ToUpdate 测试 (json tag) ==========
 
 func TestToUpdatePtr(t *testing.T) {
 	type Req struct {
@@ -274,6 +343,20 @@ func TestToUpdateNonPtrIgnored(t *testing.T) {
 	req := Req{Name: &n, Age: 18}
 	data := sharksql.ToUpdate(req)
 	if len(data) != 1 || data["name"] != "test" {
+		t.Errorf("data = %v", data)
+	}
+}
+
+func TestToUpdateNoJsonTagIgnored(t *testing.T) {
+	type Req struct {
+		Name   *string `json:"name"`
+		Ignore *string
+	}
+	n := "hello"
+	ig := "ignored"
+	req := Req{Name: &n, Ignore: &ig}
+	data := sharksql.ToUpdate(req)
+	if len(data) != 1 || data["name"] != "hello" {
 		t.Errorf("data = %v", data)
 	}
 }

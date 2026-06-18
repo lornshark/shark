@@ -1316,18 +1316,20 @@ func InnerJoin(table string, on *SqlBuilder) (string, []any) {
 	return "INNER JOIN " + table + " ON " + sql, args
 }
 
-// Where 根据结构体字段生成 WHERE 条件 (column = ? 形式)。
+// Where 根据结构体的 sql tag 生成参数化 SQL WHERE 条件。
 //
 // 规则：
-//   - 只处理指针字段（*T, *[]T, *map[K]V），其他类型忽略
-//   - 列名取自 json tag
-//   - 指针 nil 忽略
-//   - *[]T / *[]T（非 nil）：column IN (?)
-//   - *map[K]V（非 nil）：column = ?，值用 sonic 序列化为 JSON
-//   - *struct/嵌套指针/slice/map/array（非 nil）：column = ?，值用 sonic 序列化为 JSON
-//   - *decimal.Decimal（非 nil）：原值传递，不序列化
+//   - 只处理指针字段和切片字段，其他类型字段忽略
+//   - 指针为 nil 时忽略该字段
+//   - slice len=0 时忽略该字段
+//   - 没有 sql tag 的字段忽略
+//   - IN 条件必须是 slice 类型，否则忽略
+//   - LIKE: %?% (前后模糊)
+//   - LIKEL: ?% (后缀模糊，即 name LIKE ?%，匹配以 value 结尾的)
+//   - LIKER: %? (前缀模糊，即 name LIKE %?，匹配以 value 开头的)
 func Where(req any) (string, []any) {
 	v := reflect.ValueOf(req)
+	// 如果是指针，解引用到实际值
 	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
 			return "", nil
@@ -1344,34 +1346,38 @@ func Where(req any) (string, []any) {
 
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
-		column := field.Tag.Get("json")
-		if column == "" {
+		sqlTag := field.Tag.Get("sql")
+		if sqlTag == "" {
 			continue
 		}
 
 		fieldVal := v.Field(i)
-		if fieldVal.Kind() != reflect.Ptr {
-			continue
-		}
-		if fieldVal.IsNil() {
-			continue
-		}
 
-		elem := fieldVal.Elem()
+		// 判断是否为指针类型
+		if fieldVal.Kind() == reflect.Ptr {
+			if fieldVal.IsNil() {
+				continue // 指针为 nil，忽略
+			}
+			// 解引用指针，获取实际值
+			actualVal := fieldVal.Elem().Interface()
 
-		// 判断指针指向的是否为切片/数组 → IN (?)
-		if elem.Kind() == reflect.Slice || elem.Kind() == reflect.Array {
-			conditions = append(conditions, column+" IN (?)")
-			args = append(args, elem.Interface())
-			continue
+			cond, arg := buildCondition(sqlTag, actualVal)
+			if cond != "" {
+				conditions = append(conditions, cond)
+				args = append(args, arg)
+			}
+		} else if fieldVal.Kind() == reflect.Slice {
+			if fieldVal.Len() == 0 {
+				continue // 空切片，忽略
+			}
+			// IN 条件才处理切片
+			cond, arg := buildCondition(sqlTag, fieldVal.Interface())
+			if cond != "" {
+				conditions = append(conditions, cond)
+				args = append(args, arg)
+			}
 		}
-
-		// 其他类型 → column = ?
-		val := resolveValue(elem)
-		if val != nil {
-			conditions = append(conditions, column+" = ?")
-			args = append(args, val)
-		}
+		// 非指针、非切片字段：忽略
 	}
 
 	if len(conditions) == 0 {
@@ -1379,6 +1385,79 @@ func Where(req any) (string, []any) {
 	}
 
 	return strings.Join(conditions, " AND "), args
+}
+
+// buildCondition 根据 sql tag 模板和值构造 SQL 条件片段。
+// 支持的模板：
+//   - "column = ?"        → column = ?
+//   - "column <> ?"       → column <> ?
+//   - "column > ?"        → column > ?
+//   - "column >= ?"       → column >= ?
+//   - "column < ?"        → column < ?
+//   - "column <= ?"       → column <= ?
+//   - "column IN (?)"     → column IN (?) (值必须是切片)
+//   - "column NOT IN (?)" → column NOT IN (?) (值必须是切片)
+//   - "column LIKE ?"     → column LIKE ? (参数带 %value%)
+//   - "column NOT LIKE ?" → column NOT LIKE ? (参数带 %value%)
+//   - "column LIKEL ?"    → column LIKE ? (参数带 value%)
+//   - "column NOT LIKEL ?"→ column NOT LIKE ? (参数带 value%)
+//   - "column LIKER ?"    → column LIKE ? (参数带 %value)
+//   - "column NOT LIKER ?"→ column NOT LIKE ? (参数带 %value)
+func buildCondition(sqlTag string, value any) (string, any) {
+	// 转为大写做大小写不敏感匹配
+	upper := strings.ToUpper(sqlTag)
+
+	// 处理 IN / NOT IN（必须在 LIKE 之前，因为 "IN" 可能出现在 LIKE 中）
+	if strings.Contains(upper, "IN (?)") {
+		rv := reflect.ValueOf(value)
+		if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
+			return "", nil // 不是切片，忽略
+		}
+		return sqlTag, value
+	}
+
+	// NOT LIKEL → NOT LIKE (大小写不敏感) 参数: value%
+	if idx := indexIgnoreCase(upper, " NOT LIKEL ?"); idx != -1 {
+		cond := sqlTag[:idx] + " NOT LIKE ?"
+		return cond, fmt.Sprint(value) + "%"
+	}
+
+	// NOT LIKER → NOT LIKE (大小写不敏感) 参数: %value
+	if idx := indexIgnoreCase(upper, " NOT LIKER ?"); idx != -1 {
+		cond := sqlTag[:idx] + " NOT LIKE ?"
+		return cond, "%" + fmt.Sprint(value)
+	}
+
+	// NOT LIKE (大小写不敏感) 参数: %value%
+	if strings.Contains(upper, " NOT LIKE ?") {
+		return sqlTag, "%" + fmt.Sprint(value) + "%"
+	}
+
+	// LIKEL → LIKE (大小写不敏感) 参数: value%
+	if idx := indexIgnoreCase(upper, " LIKEL ?"); idx != -1 {
+		cond := sqlTag[:idx] + " LIKE ?"
+		return cond, fmt.Sprint(value) + "%"
+	}
+
+	// LIKER → LIKE (大小写不敏感) 参数: %value
+	if idx := indexIgnoreCase(upper, " LIKER ?"); idx != -1 {
+		cond := sqlTag[:idx] + " LIKE ?"
+		return cond, "%" + fmt.Sprint(value)
+	}
+
+	// LIKE (大小写不敏感) 参数: %value%
+	if strings.Contains(upper, " LIKE ?") {
+		return sqlTag, "%" + fmt.Sprint(value) + "%"
+	}
+
+	// 默认：直接使用 sql tag 作为条件，值原样传递
+	return sqlTag, value
+}
+
+// indexIgnoreCase 在 s 中大小写不敏感搜索 substr，返回首次出现的索引，未找到返回 -1。
+// 参数 s 必须已经是大写形式。
+func indexIgnoreCase(s string, substr string) int {
+	return strings.Index(s, strings.ToUpper(substr))
 }
 
 //	type UpdateDemo struct {
