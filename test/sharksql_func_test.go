@@ -707,3 +707,36 @@ func TestMixedWithSum(t *testing.T) {
 		t.Errorf("Mixed = %s, want %s", result, expected)
 	}
 }
+
+// ========== Paren 测试 ==========
+
+func TestParenColumn(t *testing.T) {
+	s := sharksql.Paren("score")
+	if s != "(score)" {
+		t.Errorf("Paren = %s, want (score)", s)
+	}
+}
+
+func TestParenExpression(t *testing.T) {
+	s := sharksql.Paren("age >= 18 AND age <= 60")
+	if s != "(age >= 18 AND age <= 60)" {
+		t.Errorf("Paren = %s, want (age >= 18 AND age <= 60)", s)
+	}
+}
+
+func TestParenWithAddCol(t *testing.T) {
+	// 模拟 SELECT (base_salary + bonus) as total 模式
+	// 注意：Paren 加了 () 后 As 还会再加一层 ()，产生双重括号
+	expr := sharksql.AddCol("base_salary", "bonus")
+	result := sharksql.Paren(expr)
+	if result != "(base_salary + bonus)" {
+		t.Errorf("Paren(AddCol) = %s, want (base_salary + bonus)", result)
+	}
+}
+
+func TestParenEmpty(t *testing.T) {
+	s := sharksql.Paren("")
+	if s != "()" {
+		t.Errorf("Paren empty = %s, want ()", s)
+	}
+}

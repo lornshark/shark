@@ -375,6 +375,23 @@ func As(expression string, alias string) string {
 	return fmt.Sprintf("(%v) as %v", expression, alias)
 }
 
+// Paren 为列名或表达式添加括号：(column)。
+// 用于需要显式括号包裹的 SQL 场景，如子查询中的表达式、复杂 WHERE 条件等。
+//
+// 示例：
+//
+//	// SELECT (score) FROM exams
+//	db.Select(sharksql.Paren("score")).Find(&results)
+//
+//	// SELECT (base_salary + bonus) as total FROM employees
+//	db.Select(sharksql.As(sharksql.Paren(sharksql.AddCol("base_salary", "bonus")), "total")).Find(&results)
+//
+//	// WHERE (age >= 18 AND age <= 60)
+//	db.Where(sharksql.Paren("age >= 18 AND age <= 60")).Find(&users)
+func Paren(column string) string {
+	return fmt.Sprintf("(%v)", column)
+}
+
 // ========== 排序构建器（ORDER BY）==========
 
 // Asc 构建升序排序表达式。
