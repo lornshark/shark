@@ -1322,14 +1322,22 @@ func InnerJoin(table string, on *SqlBuilder) (string, []any) {
 // nil 指针字段自动跳过，无需写一堆 if xx != nil 判空，极大减少样板代码。
 //
 // 字段处理规则：
-//   - 只处理指针字段（*T）和切片字段（[]T），其他类型字段忽略
+//   - 只处理"基础类型的指针"（*int / *string / *float64 等）和"基础类型的切片"（[]int / []string 等）
+//   - 非基础类型的指针（*struct / *map 等，*decimal.Decimal 除外）→ 忽略，不生成条件
+//   - 非基础类型的切片（[]struct 等，[]decimal.Decimal 除外）→ 忽略，不生成条件
+//   - *decimal.Decimal 和 []decimal.Decimal 均视为基础类型，正常参与条件构建
+//   - 非指针、非切片的值类型字段（int / string / struct 等）→ 忽略
 //   - 指针为 nil 时忽略该字段（等价于"不筛选此条件"）
 //   - 切片 len=0 时忽略该字段（等价于"不筛选此条件"）
 //   - 没有 sql tag 的字段忽略
-//   - IN / NOT IN 条件必须是 slice 类型，否则忽略
+//   - IN / NOT IN 条件必须是基础类型切片，否则忽略
 //   - 多个条件自动以 AND 连接
 //
-// sql tag 模板对照表（tag 格式 → 生成的 SQL → 参数处理）：
+// 基础类型定义：bool, int/int8/int16/int32/int64, uint/uint8/uint16/uint32/uint64,
+// float32/float64, string, 以及 decimal.Decimal（shopspring/decimal）。
+// 其他所有类型（struct / map / 自定义类型等，除 decimal.Decimal 外）均视为非基础类型，不会参与条件构建。
+//
+// sql tag 模板对照表（tag 格式 → 结构体字段类型 → 生成的 SQL → 参数处理）：
 //
 //	┌─────────────────────────────────────┬──────────────────────────┬──────────────────┐
 //	│ sql tag 模板                        │ 结构体字段类型           │ 生成的 SQL/参数   │
@@ -1346,7 +1354,13 @@ func InnerJoin(table string, on *SqlBuilder) (string, []any) {
 //	│ `sql:"email LIKER ?"`               │ *string                  │ 参数自动 %value  │
 //	│ `sql:"status IN (?)"`               │ []int                    │ 原切片传递       │
 //	│ `sql:"id NOT IN (?)"`               │ []int64                  │ 原切片传递       │
+//	│ `sql:"amount = ?"`                  │ *decimal.Decimal         │ amount = ?       │
+//	│ `sql:"status IN (?)"`               │ []decimal.Decimal        │ 原切片传递       │
 //	└─────────────────────────────────────┴──────────────────────────┴──────────────────┘
+//
+// 注意：*decimal.Decimal 和 []decimal.Decimal 均为基础类型，会正常生成条件。
+// *YourStruct、*map[string]any 等非基础类型不会生成条件，
+// 即使 sql tag 写的是 "column = ?" 或 "column IN (?)"，也只会被忽略。
 //
 // 使用示例：
 //
@@ -1412,8 +1426,12 @@ func Where(req any) (string, []any) {
 			if fieldVal.IsNil() {
 				continue // 指针为 nil，忽略
 			}
-			// 解引用指针，获取实际值
-			actualVal := fieldVal.Elem().Interface()
+			// 解引用指针，检查是否为基本类型（decimal.Decimal 属于基础类型）
+			elem := fieldVal.Elem()
+			if !isBasicKind(elem.Kind()) && !isDecimal(elem) {
+				continue // 非基础类型（*struct 等），忽略
+			}
+			actualVal := elem.Interface()
 
 			cond, arg := buildCondition(sqlTag, actualVal)
 			if cond != "" {
@@ -1423,6 +1441,11 @@ func Where(req any) (string, []any) {
 		} else if fieldVal.Kind() == reflect.Slice {
 			if fieldVal.Len() == 0 {
 				continue // 空切片，忽略
+			}
+			// 检查切片元素是否为基本类型（decimal.Decimal 属于基础类型）
+			elemType := fieldVal.Type().Elem()
+			if !isBasicKind(elemType.Kind()) && !isDecimalType(elemType) {
+				continue // 非基础类型切片（[]struct 等），忽略
 			}
 			// IN 条件才处理切片
 			cond, arg := buildCondition(sqlTag, fieldVal.Interface())
@@ -1439,6 +1462,51 @@ func Where(req any) (string, []any) {
 	}
 
 	return strings.Join(conditions, " AND "), args
+}
+
+// isBasicKind 判断 reflect.Kind 是否为基本类型。
+// 基本类型包括：bool, int 系列, uint 系列, float 系列, string。
+// 其他所有类型（struct / map / slice / array / interface / ptr 等）均返回 false。
+func isBasicKind(k reflect.Kind) bool {
+	switch k {
+	case reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64,
+		reflect.String:
+		return true
+	default:
+		return false
+	}
+}
+
+// isDecimal 判断 reflect.Value 是否为 decimal.Decimal 类型。
+// decimal.Decimal（shopspring/decimal）被视为基础类型，参与 Where 条件构建。
+func isDecimal(rv reflect.Value) bool {
+	if !rv.IsValid() {
+		return false
+	}
+	iface := rv.Interface()
+	_, ok := iface.(jsonDecimal)
+	return ok
+}
+
+// isDecimalType 判断 reflect.Type 是否为 decimal.Decimal 类型。
+// 用于切片元素类型检查。
+func isDecimalType(t reflect.Type) bool {
+	if t == nil {
+		return false
+	}
+	// decimal.Decimal 作为 reflect.Struct，无法简单通过 Kind 区分。
+	// 通过尝试创建一个零值实例并类型断言。
+	if t.Kind() != reflect.Struct {
+		return false
+	}
+	v := reflect.New(t).Elem()
+	if !v.IsValid() {
+		return false
+	}
+	return isDecimal(v)
 }
 
 // buildCondition 根据 sql tag 模板和值构造 SQL 条件片段。
