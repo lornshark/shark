@@ -43,6 +43,10 @@ func NewTable(db *gorm.DB) *SharkTable {
 	return &SharkTable{db: db}
 }
 
+func NewTableWithReq(db *gorm.DB, req any) *SharkTable {
+	return &SharkTable{db: db}
+}
+
 // isEmpty 判断值是否为空（nil / 空指针 / 空切片 / 空 map）。
 func (t *SharkTable) isEmpty(v any) bool {
 	if v == nil {

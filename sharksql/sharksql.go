@@ -36,8 +36,10 @@ package sharksql
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
+	"github.com/bytedance/sonic"
 	"github.com/go-sql-driver/mysql"
 	"github.com/lornshark/shark/sharkjson"
 	"github.com/spf13/cast"
@@ -1312,4 +1314,175 @@ func InnerJoin(table string, on *SqlBuilder) (string, []any) {
 		return "", nil
 	}
 	return "INNER JOIN " + table + " ON " + sql, args
+}
+
+// Where 根据结构体字段生成 WHERE 条件 (column = ? 形式)。
+//
+// 规则：
+//   - 只处理指针字段（*T, *[]T, *map[K]V），其他类型忽略
+//   - 列名取自 json tag
+//   - 指针 nil 忽略
+//   - *[]T / *[]T（非 nil）：column IN (?)
+//   - *map[K]V（非 nil）：column = ?，值用 sonic 序列化为 JSON
+//   - *struct/嵌套指针/slice/map/array（非 nil）：column = ?，值用 sonic 序列化为 JSON
+//   - *decimal.Decimal（非 nil）：原值传递，不序列化
+func Where(req any) (string, []any) {
+	v := reflect.ValueOf(req)
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return "", nil
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return "", nil
+	}
+
+	t := v.Type()
+	var conditions []string
+	var args []any
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		column := field.Tag.Get("json")
+		if column == "" {
+			continue
+		}
+
+		fieldVal := v.Field(i)
+		if fieldVal.Kind() != reflect.Ptr {
+			continue
+		}
+		if fieldVal.IsNil() {
+			continue
+		}
+
+		elem := fieldVal.Elem()
+
+		// 判断指针指向的是否为切片/数组 → IN (?)
+		if elem.Kind() == reflect.Slice || elem.Kind() == reflect.Array {
+			conditions = append(conditions, column+" IN (?)")
+			args = append(args, elem.Interface())
+			continue
+		}
+
+		// 其他类型 → column = ?
+		val := resolveValue(elem)
+		if val != nil {
+			conditions = append(conditions, column+" = ?")
+			args = append(args, val)
+		}
+	}
+
+	if len(conditions) == 0 {
+		return "", nil
+	}
+
+	return strings.Join(conditions, " AND "), args
+}
+
+//	type UpdateDemo struct {
+//		Name   *string         `json:"name"`   // → "张三"
+//		Age    *int            `json:"age"`    // → 25
+//		Price  *decimal.Decimal `json:"price"` // → 19.99 (原值)
+//		Tags   *[]string       `json:"tags"`   // → `["a","b"]` (JSON)
+//		Meta   *map[string]any  `json:"meta"`  // → `{"k":"v"}` (JSON)
+//		Ignore int             `json:"ignore"` // 非指针，忽略
+//	}
+//
+//	req := UpdateDemo{
+//		Name: strPtr("张三"),
+//		Age:  intPtr(25),
+//		Price: decPtr(decimal.NewFromFloat(19.99)),
+//	}
+//	data := sharksql.ToUpdate(req)
+//	// data: map[string]any{"name":"张三", "age":25, "price":19.99}
+//
+// ToUpdate 根据结构体字段生成 UPDATE SET 列的 map[string]any。
+//
+// 规则：
+//   - 只处理指针字段（*T, *[]T, *map[K]V），其他类型忽略
+//   - 列名取自 json tag
+//   - 指针 nil 忽略
+//   - 值如果是复合类型，用 sonic 序列化为 JSON 字符串
+//   - decimal.Decimal 不视为复合类型直接传值
+func ToUpdate(req any) map[string]any {
+	v := reflect.ValueOf(req)
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return nil
+	}
+
+	t := v.Type()
+	result := make(map[string]any)
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		column := field.Tag.Get("json")
+		if column == "" {
+			continue
+		}
+
+		fieldVal := v.Field(i)
+		if fieldVal.Kind() != reflect.Ptr {
+			continue
+		}
+		if fieldVal.IsNil() {
+			continue
+		}
+
+		elem := fieldVal.Elem()
+		val := resolveValue(elem)
+		if val != nil {
+			result[column] = val
+		}
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+// resolveValue 将 reflect.Value 转为实际可用值。
+// 如果是复合类型（struct/slice/map/array），序列化为 JSON 字符串。
+// decimal.Decimal 不算复合类型。
+// 注意：调用前已经解完 *T 指针，此处 elem.Kind() 不应是 Ptr。
+func resolveValue(rv reflect.Value) any {
+	if !rv.IsValid() {
+		return nil
+	}
+	iface := rv.Interface()
+	// 先检查是否是 decimal.Decimal
+	if _, ok := iface.(jsonDecimal); ok {
+		return iface
+	}
+	switch rv.Kind() {
+	case reflect.Struct:
+		return toJSON(iface)
+	case reflect.Slice, reflect.Array, reflect.Map:
+		return toJSON(iface)
+	default:
+		return iface
+	}
+}
+
+// jsonDecimal 是 decimal.Decimal 的一个简写别名，用于类型检测（无需直接 import decimal 包）。
+type jsonDecimal interface {
+	String() string
+}
+
+// toJSON 用 sonic 将值序列化为 JSON 字符串。失败返回 nil。
+func toJSON(v any) any {
+	b, err := sonic.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	// 去掉可能的换行，sonic 默认不换行但保险
+	return string(b)
 }
