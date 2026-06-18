@@ -1318,15 +1318,69 @@ func InnerJoin(table string, on *SqlBuilder) (string, []any) {
 
 // Where 根据结构体的 sql tag 生成参数化 SQL WHERE 条件。
 //
-// 规则：
-//   - 只处理指针字段和切片字段，其他类型字段忽略
-//   - 指针为 nil 时忽略该字段
-//   - slice len=0 时忽略该字段
+// 设计理念：通过反射读取 struct 的 sql tag，自动将非 nil 字段转为参数化条件。
+// nil 指针字段自动跳过，无需写一堆 if xx != nil 判空，极大减少样板代码。
+//
+// 字段处理规则：
+//   - 只处理指针字段（*T）和切片字段（[]T），其他类型字段忽略
+//   - 指针为 nil 时忽略该字段（等价于"不筛选此条件"）
+//   - 切片 len=0 时忽略该字段（等价于"不筛选此条件"）
 //   - 没有 sql tag 的字段忽略
-//   - IN 条件必须是 slice 类型，否则忽略
-//   - LIKE: %?% (前后模糊)
-//   - LIKEL: ?% (后缀模糊，即 name LIKE ?%，匹配以 value 结尾的)
-//   - LIKER: %? (前缀模糊，即 name LIKE %?，匹配以 value 开头的)
+//   - IN / NOT IN 条件必须是 slice 类型，否则忽略
+//   - 多个条件自动以 AND 连接
+//
+// sql tag 模板对照表（tag 格式 → 生成的 SQL → 参数处理）：
+//
+//	┌─────────────────────────────────────┬──────────────────────────┬──────────────────┐
+//	│ sql tag 模板                        │ 结构体字段类型           │ 生成的 SQL/参数   │
+//	├─────────────────────────────────────┼──────────────────────────┼──────────────────┤
+//	│ `sql:"status = ?"`                  │ *int                     │ status = ?       │
+//	│ `sql:"status <> ?"`                 │ *int                     │ status <> ?      │
+//	│ `sql:"age > ?"`                     │ *int                     │ age > ?          │
+//	│ `sql:"amount >= ?"`                 │ *float64                 │ amount >= ?      │
+//	│ `sql:"price < ?"`                   │ *int                     │ price < ?        │
+//	│ `sql:"stock <= ?"`                  │ *int                     │ stock <= ?       │
+//	│ `sql:"name LIKE ?"`                 │ *string                  │ 参数自动 %value% │
+//	│ `sql:"name NOT LIKE ?"`             │ *string                  │ 参数自动 %value% │
+//	│ `sql:"phone LIKEL ?"`               │ *string                  │ 参数自动 value%  │
+//	│ `sql:"email LIKER ?"`               │ *string                  │ 参数自动 %value  │
+//	│ `sql:"status IN (?)"`               │ []int                    │ 原切片传递       │
+//	│ `sql:"id NOT IN (?)"`               │ []int64                  │ 原切片传递       │
+//	└─────────────────────────────────────┴──────────────────────────┴──────────────────┘
+//
+// 使用示例：
+//
+//	// 1. 定义请求结构体（sql tag + json tag 共存）
+//	type ListUsersReq struct {
+//	    sharksql.Pagination          // 嵌入分页参数（Page/PageSize）
+//	    Status *int    `json:"status" sql:"status = ?"`
+//	    Name   *string `json:"name"   sql:"name LIKE ?"`
+//	    City   *string `json:"city"   sql:"city = ?"`
+//	    MinAge *int    `json:"-"      sql:"age >= ?"` // json:"-" 不暴露给前端
+//	}
+//
+//	// 2. 前端传入 JSON → 反序列化 → Where 生成条件
+//	// 前端传：{"status":1, "name":"张三"}
+//	req := ListUsersReq{
+//	    Pagination: sharksql.Pagination{Page: 1, PageSize: 20},
+//	    Status:     intPtr(1),
+//	    Name:       strPtr("张三"),
+//	    City:       nil, // 不筛选城市 → 自动跳过
+//	}
+//	sql, args := sharksql.Where(req)
+//	// sql:  "status = ? AND name LIKE ?"
+//	// args: [1, %张三%]
+//
+//	// 3. 配合 GORM 查询
+//	db.Where(sql, args...).
+//	    Limit(req.PageSize).Offset((req.Page-1)*req.PageSize).
+//	    Order("created_at DESC").
+//	    Find(&users)
+//
+//	// 4. 配合 SharkTable 更简洁（一步到位）
+//	table := sharkdb.NewTableWithReq(db.Table("users"), req)
+//	table.Gorm().Find(&users)
+
 func Where(req any) (string, []any) {
 	v := reflect.ValueOf(req)
 	// 如果是指针，解引用到实际值
