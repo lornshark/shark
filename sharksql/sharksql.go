@@ -1603,10 +1603,36 @@ func indexIgnoreCase(s string, substr string) int {
 //
 // 规则：
 //   - 只处理指针字段（*T, *[]T, *map[K]V），其他类型忽略
-//   - 列名取自 json tag
+//   - 列名取自 json tag（json:"-" 的字段会被忽略）
 //   - 指针 nil 忽略
 //   - 值如果是复合类型，用 sonic 序列化为 JSON 字符串
-//   - decimal.Decimal 不视为复合类型直接传值
+//   - 基本类型直接传值，不序列化
+//
+// 基本类型（直接传值，不序列化为 JSON）：
+//
+//	bool, int/int8/int16/int32/int64,
+//	uint/uint8/uint16/uint32/uint64,
+//	float32/float64, string,
+//	decimal.Decimal（shopspring/decimal）
+//
+// 复合类型（序列化为 JSON 字符串）：
+//
+//	除上述基本类型之外的所有类型，包括但不限于：
+//	struct、map、slice、array、指针、interface、自定义类型等。
+//	例如 *[]UserInfo → `[{"name":"Alice"}]`
+//	     *map[string]any → `{"key":"value"}`
+//	     *YourStruct     → `{"field":"value"}`
+//
+// 使用示例：
+//
+//	type UpdateReq struct {
+//	    Name   *string         `json:"name"`   // 基本类型 → "张三"
+//	    Age    *int            `json:"age"`    // 基本类型 → 25
+//	    Price  *decimal.Decimal `json:"price"` // 基本类型 → 19.99 (原值)
+//	    Tags   *[]string       `json:"tags"`   // 复合类型 → `["a","b"]`
+//	    Meta   *map[string]any  `json:"meta"`  // 复合类型 → `{"k":"v"}`
+//	    Ignore int             `json:"ignore"` // 非指针，忽略
+//	}
 func ToUpdate(req any) map[string]any {
 	v := reflect.ValueOf(req)
 	if v.Kind() == reflect.Ptr {
