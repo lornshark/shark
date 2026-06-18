@@ -316,3 +316,289 @@ func TestJsonArrayAppendObject(t *testing.T) {
 		t.Errorf("args length = %d, want 2", len(args))
 	}
 }
+
+// ========== 新 JSON 函数测试 ==========
+
+func TestJsonExtract(t *testing.T) {
+	s := sharksql.JsonExtract("metadata", "$.name")
+	if s != "JSON_EXTRACT(metadata, '$.name')" {
+		t.Errorf("JsonExtract = %s", s)
+	}
+}
+
+func TestJsonExtractMultiple(t *testing.T) {
+	s := sharksql.JsonExtract("metadata", "$.name", "$.age")
+	if s != "JSON_EXTRACT(metadata, '$.name', '$.age')" {
+		t.Errorf("JsonExtract multiple = %s", s)
+	}
+}
+
+func TestJsonExtractEmpty(t *testing.T) {
+	s := sharksql.JsonExtract("metadata")
+	if s != "JSON_EXTRACT(metadata, '$')" {
+		t.Errorf("JsonExtract empty = %s", s)
+	}
+}
+
+func TestJsonUnquote(t *testing.T) {
+	s := sharksql.JsonUnquote("metadata", "$.city")
+	if s != "JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.city'))" {
+		t.Errorf("JsonUnquote = %s", s)
+	}
+}
+
+func TestJsonRemove(t *testing.T) {
+	s := sharksql.JsonRemove("tags", "$[0]")
+	if s != "JSON_REMOVE(tags, '$[0]')" {
+		t.Errorf("JsonRemove = %s", s)
+	}
+}
+
+func TestJsonRemoveMultiple(t *testing.T) {
+	s := sharksql.JsonRemove("metadata", "$.temp", "$.cache")
+	if s != "JSON_REMOVE(metadata, '$.temp', '$.cache')" {
+		t.Errorf("JsonRemove multiple = %s", s)
+	}
+}
+
+func TestJsonArrayInsert(t *testing.T) {
+	sql, args := sharksql.JsonArrayInsert("tags", "$[0]", "vip")
+	if sql != "JSON_ARRAY_INSERT(COALESCE(tags, JSON_ARRAY()), '$[0]', CAST(? AS JSON))" {
+		t.Errorf("sql = %s", sql)
+	}
+	if len(args) != 1 || args[0] != "vip" {
+		t.Errorf("args = %v", args)
+	}
+}
+
+func TestJsonArrayInsertObject(t *testing.T) {
+	sql, args := sharksql.JsonArrayInsert("tags", "$[1]", map[string]any{"name": "vip"})
+	if sql != "JSON_ARRAY_INSERT(COALESCE(tags, JSON_ARRAY()), '$[1]', CAST(? AS JSON))" {
+		t.Errorf("sql = %s", sql)
+	}
+	if len(args) != 1 {
+		t.Errorf("args count = %d", len(args))
+	}
+}
+
+func TestJsonLength(t *testing.T) {
+	s := sharksql.JsonLength("tags")
+	if s != "JSON_LENGTH(tags)" {
+		t.Errorf("JsonLength = %s", s)
+	}
+}
+
+func TestJsonKeys(t *testing.T) {
+	s := sharksql.JsonKeys("metadata")
+	if s != "JSON_KEYS(metadata)" {
+		t.Errorf("JsonKeys = %s", s)
+	}
+}
+
+func TestJsonType(t *testing.T) {
+	s := sharksql.JsonType("metadata")
+	if s != "JSON_TYPE(metadata)" {
+		t.Errorf("JsonType = %s", s)
+	}
+}
+
+// ========== Count 测试 ==========
+
+func TestCount(t *testing.T) {
+	s := sharksql.Count("id")
+	if s != "count(id)" {
+		t.Errorf("Count = %s, want count(id)", s)
+	}
+}
+
+func TestCountStar(t *testing.T) {
+	s := sharksql.Count("*")
+	if s != "count(*)" {
+		t.Errorf("Count = %s, want count(*)", s)
+	}
+}
+
+func TestCountDistinct(t *testing.T) {
+	s := sharksql.Count("DISTINCT user_id")
+	if s != "count(DISTINCT user_id)" {
+		t.Errorf("Count = %s", s)
+	}
+}
+
+// ========== Between 测试 ==========
+
+func TestBetween(t *testing.T) {
+	sql, lo, hi := sharksql.Between("amount", 100, 500)
+	if sql != "amount >= ? AND amount < ?" {
+		t.Errorf("sql = %s", sql)
+	}
+	if lo != 100 || hi != 500 {
+		t.Errorf("lo=%v hi=%v", lo, hi)
+	}
+}
+
+// ========== Distinct 测试 ==========
+
+func TestDistinctSingle(t *testing.T) {
+	s := sharksql.Distinct("status")
+	if s != "DISTINCT status" {
+		t.Errorf("Distinct single = %s, want DISTINCT status", s)
+	}
+}
+
+func TestDistinctMultiple(t *testing.T) {
+	s := sharksql.Distinct("user_id", "org_id")
+	if s != "DISTINCT(user_id, org_id)" {
+		t.Errorf("Distinct multiple = %s", s)
+	}
+}
+
+func TestDistinctEmpty(t *testing.T) {
+	s := sharksql.Distinct()
+	if s != "" {
+		t.Errorf("Distinct empty = %s, want empty string", s)
+	}
+}
+
+// ========== LeftJoin 测试 ==========
+
+func TestLeftJoinBasic(t *testing.T) {
+	onB := sharksql.NewSql().EqCol("u.id", "o.user_id")
+	sql, args := sharksql.LeftJoin("orders o", onB)
+	expected := "LEFT JOIN orders o ON u.id = o.user_id"
+	if sql != expected {
+		t.Errorf("sql = %s, want %s", sql, expected)
+	}
+	if len(args) != 0 {
+		t.Errorf("args = %v, want nil", args)
+	}
+}
+
+func TestLeftJoinWithValueCondition(t *testing.T) {
+	onB := sharksql.NewSql().
+		EqCol("u.id", "o.user_id").
+		Eq("o.deleted", 0)
+	sql, args := sharksql.LeftJoin("orders o", onB)
+	expected := "LEFT JOIN orders o ON (u.id = o.user_id AND o.deleted = ?)"
+	if sql != expected {
+		t.Errorf("sql = %s, want %s", sql, expected)
+	}
+	if len(args) != 1 || args[0] != 0 {
+		t.Errorf("args = %v, want [0]", args)
+	}
+}
+
+func TestLeftJoinMultipleFields(t *testing.T) {
+	onB := sharksql.NewSql().
+		EqCol("u.id", "o.user_id").
+		EqCol("u.org_id", "o.org_id").
+		Eq("o.status", "active")
+	sql, args := sharksql.LeftJoin("orders o", onB)
+	expected := "LEFT JOIN orders o ON (u.id = o.user_id AND u.org_id = o.org_id AND o.status = ?)"
+	if sql != expected {
+		t.Errorf("sql = %s, want %s", sql, expected)
+	}
+	if len(args) != 1 || args[0] != "active" {
+		t.Errorf("args = %v, want [active]", args)
+	}
+}
+
+func TestLeftJoinWithOrCondition(t *testing.T) {
+	// LEFT JOIN ... ON u.id = o.user_id AND (o.status = ? OR o.type = ?)
+	statusB := sharksql.NewSql().Eq("o.status", "pending").Or(sharksql.NewSql().Eq("o.type", "urgent"))
+	onB := sharksql.NewSql().EqCol("u.id", "o.user_id").And(statusB)
+	sql, args := sharksql.LeftJoin("orders o", onB)
+	expected := "LEFT JOIN orders o ON (u.id = o.user_id AND (o.status = ? OR o.type = ?))"
+	if sql != expected {
+		t.Errorf("sql = %s, want %s", sql, expected)
+	}
+	if len(args) != 2 {
+		t.Errorf("args count = %d, want 2", len(args))
+	}
+}
+
+func TestLeftJoinNilOn(t *testing.T) {
+	sql, args := sharksql.LeftJoin("orders o", nil)
+	if sql != "" {
+		t.Errorf("nil on should return empty string, got %s", sql)
+	}
+	if len(args) != 0 {
+		t.Errorf("nil on args should be nil, got %v", args)
+	}
+}
+
+func TestLeftJoinEmptyOn(t *testing.T) {
+	// 空 Builder（所有条件被跳过）→ 返回空
+	onB := sharksql.NewSql().Eq("name", nil)
+	sql, args := sharksql.LeftJoin("orders o", onB)
+	if sql != "" {
+		t.Errorf("empty on should return empty string, got %s", sql)
+	}
+	if len(args) != 0 {
+		t.Errorf("empty on args should be nil, got %v", args)
+	}
+}
+
+func TestLeftJoinPureValueOnly(t *testing.T) {
+	// 仅包含字段对值的 ON 条件（无字段对字段）
+	onB := sharksql.NewSql().
+		Eq("o.deleted", 0).
+		Eq("o.status", "active")
+	sql, args := sharksql.LeftJoin("orders o", onB)
+	expected := "LEFT JOIN orders o ON (o.deleted = ? AND o.status = ?)"
+	if sql != expected {
+		t.Errorf("sql = %s, want %s", sql, expected)
+	}
+	if len(args) != 2 {
+		t.Errorf("args count = %d, want 2", len(args))
+	}
+}
+
+// ========== InnerJoin 测试 ==========
+
+func TestInnerJoinBasic(t *testing.T) {
+	onB := sharksql.NewSql().EqCol("u.id", "o.user_id")
+	sql, args := sharksql.InnerJoin("orders o", onB)
+	expected := "INNER JOIN orders o ON u.id = o.user_id"
+	if sql != expected {
+		t.Errorf("sql = %s, want %s", sql, expected)
+	}
+	if len(args) != 0 {
+		t.Errorf("args = %v, want nil", args)
+	}
+}
+
+func TestInnerJoinWithValueCondition(t *testing.T) {
+	onB := sharksql.NewSql().
+		EqCol("u.id", "o.user_id").
+		Eq("o.deleted", 0)
+	sql, args := sharksql.InnerJoin("orders o", onB)
+	expected := "INNER JOIN orders o ON (u.id = o.user_id AND o.deleted = ?)"
+	if sql != expected {
+		t.Errorf("sql = %s, want %s", sql, expected)
+	}
+	if len(args) != 1 || args[0] != 0 {
+		t.Errorf("args = %v, want [0]", args)
+	}
+}
+
+func TestInnerJoinNilOn(t *testing.T) {
+	sql, args := sharksql.InnerJoin("orders o", nil)
+	if sql != "" {
+		t.Errorf("nil on should return empty string, got %s", sql)
+	}
+	if len(args) != 0 {
+		t.Errorf("nil on args should be nil, got %v", args)
+	}
+}
+
+func TestInnerJoinEmptyOn(t *testing.T) {
+	onB := sharksql.NewSql().Eq("name", nil)
+	sql, args := sharksql.InnerJoin("orders o", onB)
+	if sql != "" {
+		t.Errorf("empty on should return empty string, got %s", sql)
+	}
+	if len(args) != 0 {
+		t.Errorf("empty on args should be nil, got %v", args)
+	}
+}

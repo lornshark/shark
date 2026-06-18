@@ -13,10 +13,10 @@ import (
 //
 // 它在 gorm 基础上提供了链式调用的条件构建方法，
 // 自动跳过空值（避免写一堆 if xx != "" 判空），
-// 并支持通过 sharksql.Builder 构建复杂 OR 查询。
+// 并支持通过 sharksql.SqlBuilder 构建复杂 OR 查询。
 //
-// 与 sharksql.Builder 的区别：
-//   - Builder 是纯 SQL 条件构建器，返回 SQL 字符串和参数，需要自行拼接到 gorm 中。
+// 与 sharksql.SqlBuilder 的区别：
+//   - SqlBuilder 是纯 SQL 条件构建器，返回 SQL 字符串和参数，需要自行拼接到 gorm 中。
 //   - SharkTable 直接封装 gorm.DB，调用方法后立即生效，适合简单的单表 CRUD。
 //
 // 使用示例：
@@ -104,6 +104,25 @@ func (t *SharkTable) SelectWithTiflash(columns ...any) *SharkTable {
 //	table.Select("SUM(amount) as total")
 func (t *SharkTable) Select(query any, args ...any) *SharkTable {
 	t.db = t.db.Select(query, args...)
+	return t
+}
+
+// Distinct 添加 DISTINCT 去重。
+// columns 为空时自动跳过。
+//
+// 示例：
+//
+//	table.Distinct("status")              // SELECT DISTINCT status
+//	table.Distinct("user_id", "org_id")   // SELECT DISTINCT(user_id, org_id)
+func (t *SharkTable) Distinct(columns ...string) *SharkTable {
+	if len(columns) == 0 {
+		return t
+	}
+	if len(columns) == 1 {
+		t.db = t.db.Distinct(columns[0])
+	} else {
+		t.db = t.db.Distinct("(" + strings.Join(columns, ", ") + ")")
+	}
 	return t
 }
 
@@ -291,7 +310,7 @@ func (t *SharkTable) LikeRight(column string, value any) *SharkTable {
 //	table.In("id", []int64{100, 200, 300}) // id IN (100, 200, 300)
 func (t *SharkTable) In(column string, value any) *SharkTable {
 	if !t.isEmpty(value) {
-		t.db = t.db.Where(column+" IN ?", value)
+		t.db = t.db.Where(column+" IN (?)", value)
 	}
 	return t
 }
@@ -304,7 +323,7 @@ func (t *SharkTable) In(column string, value any) *SharkTable {
 //	table.NotIn("id", []int64{1, 2})  // id NOT IN (1, 2)
 func (t *SharkTable) NotIn(column string, value any) *SharkTable {
 	if !t.isEmpty(value) {
-		t.db = t.db.Where(column+" NOT IN ?", value)
+		t.db = t.db.Where(column+" NOT IN (?)", value)
 	}
 	return t
 }
@@ -357,6 +376,69 @@ func (t *SharkTable) Desc(column string) *SharkTable {
 	return t
 }
 
+// ========== JSON 方法 ==========
+
+// JsonExtract 添加 JSON_EXTRACT 到 SELECT。
+// 用于从 JSON 列中提取字段。
+//
+// 示例：
+//
+//	table.Select(table.JsonExtract("metadata", "$.name"))
+//	// → SELECT JSON_EXTRACT(metadata, '$.name')
+func (t *SharkTable) JsonExtract(column string, path ...string) string {
+	return sharksql.JsonExtract(column, path...)
+}
+
+// JsonUnquote 添加 JSON_UNQUOTE(JSON_EXTRACT(...)) 到 SELECT。
+func (t *SharkTable) JsonUnquote(column string, path string) string {
+	return sharksql.JsonUnquote(column, path)
+}
+
+// JsonSearchOne 添加 JSON_SEARCH 条件。
+// value 为空时自动跳过。
+//
+// 示例：
+//
+//	table.JsonSearchOne("tags", "vip")
+//	// → WHERE JSON_SEARCH(tags, 'one', ?) IS NOT NULL
+func (t *SharkTable) JsonSearchOne(column string, value any) *SharkTable {
+	if !t.isEmpty(value) {
+		sql, data := sharksql.JsonSearchOne(column, value)
+		t.db = t.db.Where(sql, data)
+	}
+	return t
+}
+
+// JsonContains 添加 JSON_CONTAINS 条件。
+// value 为空时自动跳过。
+//
+// 示例：
+//
+//	table.JsonContains("roles", `"admin"`)
+//	// → WHERE JSON_CONTAINS(roles, ?)
+func (t *SharkTable) JsonContains(column string, value any) *SharkTable {
+	if !t.isEmpty(value) {
+		sql, data := sharksql.JsonContains(column, value)
+		t.db = t.db.Where(sql, data)
+	}
+	return t
+}
+
+// JsonLength 添加 JSON_LENGTH 到 SELECT。
+func (t *SharkTable) JsonLength(column string) string {
+	return sharksql.JsonLength(column)
+}
+
+// JsonKeys 添加 JSON_KEYS 到 SELECT。
+func (t *SharkTable) JsonKeys(column string) string {
+	return sharksql.JsonKeys(column)
+}
+
+// JsonType 添加 JSON_TYPE 到 SELECT。
+func (t *SharkTable) JsonType(column string) string {
+	return sharksql.JsonType(column)
+}
+
 // Group 添加分组条件，多个字段以逗号拼接。
 //
 // 示例：
@@ -371,22 +453,22 @@ func (t *SharkTable) Group(columns ...string) *SharkTable {
 	return t
 }
 
-// Or 以 OR 方式添加 sharksql.Builder 构建的条件。
+// Or 以 OR 方式添加 sharksql.SqlBuilder 构建的条件。
 // builder 为 nil 或 Build 为空时自动跳过。
 // 支持传入多个 builder，之间以 OR 连接。
 //
 // 示例：
 //
 //	// WHERE (name LIKE '%张%') OR (phone LIKE '%138%')
-//	b1 := sharksql.NewBuilder().Like("name", "张")
-//	b2 := sharksql.NewBuilder().Like("phone", "138")
+//	b1 := sharksql.NewSql().Like("name", "张")
+//	b2 := sharksql.NewSql().Like("phone", "138")
 //	table.Or(b1, b2)
 //
 //	// AND 嵌套 OR：查询待处理或处理中的工单
 //	// WHERE (deleted = 0) AND ((status = 'pending') OR (status = 'in_progress'))
-//	b := sharksql.NewBuilder().Eq("status", "pending").Or(sharksql.NewBuilder().Eq("status", "in_progress"))
+//	b := sharksql.NewSql().Eq("status", "pending").Or(sharksql.NewSql().Eq("status", "in_progress"))
 //	table.Eq("deleted", 0).Or(b)
-func (t *SharkTable) Or(builder ...*sharksql.Builder) *SharkTable {
+func (t *SharkTable) Or(builder ...*sharksql.SqlBuilder) *SharkTable {
 	if len(builder) == 0 {
 		return t
 	}

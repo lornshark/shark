@@ -16,7 +16,7 @@ Shark 封装了微服务开发中常见的中间件和工具库，提供统一�
 - **双通道日志** — 控制台（Console Encoder）+ Kafka（JSON Encoder），通过 `zapcore.NewTee` 合并，Snowflake 生成每条日志唯一 ID
 - **内置服务发现** — gRPC 基于 Redis 的服务注册与发现，支持动态地址更新、round_robin 负载均衡和指数退避重试
 - **高性能 ID 生成** — 改进型 Snowflake 算法，41位时间戳 + 19位序列号，每秒 52 万个 ID，int64 类型前端安全
-- **SQL 条件构建器** — 流式 API 构建参数化 WHERE 子句，空值自动跳过，防 SQL 注入，支持 AND/OR 任意嵌套
+- **SQL 条件构建器** — 流式 API 构建参数化 WHERE/JOIN ON 子句，空值自动跳过，防 SQL 注入，支持 AND/OR 任意嵌套、字段对字段比较
 - **Keyset 游标分页** — 泛型表扫描器，深分页性能不受数据量影响，支持双向翻页（Next/Prev）和 Excel 流式导出
 - **高精度数值** — 基于 shopspring/decimal 的类型归一化（10+ 种），Round 消浮点误差 + Truncate 截断到指定位数
 - **批量消费者** — Kafka/RabbitMQ 批量拉取 + 管道缓冲 + 自动提交 offset，支持重试和优雅停止
@@ -101,7 +101,7 @@ func (s *MyService) Start() {
 | `sharkhttp` | HTTP 服务（Gin） | `New` (含 CORS/Recovery/Error 中间件) |
 | `sharktimer` | 基于 Redis ZSet 的定时器 | `Timer`, `AddTimer`, `RemoveTimer`, `AddTimeWithId` |
 | `sharksnowflake` | Snowflake ID 生成器 | `NewSnowflake`, `Generate` |
-| `sharksql` | SQL 条件构建与分页 | `Builder`, `NewBuilder`, `PageQuery`, 20+ 条件函数 |
+| `sharksql` | SQL 条件构建与分页 | `SqlBuilder`, `NewSql`, `LeftJoin`, `InnerJoin`, `PageQuery`, 40+ 函数 |
 | `sharkdecimal` | 高精度数值处理 | `Normalize`, `Normalize2`, `Normalize6` |
 | `sharkelastic` | Elasticsearch 客户端 | `SharkElastic`, `CreateIndex`, `Search`, `Insert` |
 | `sharketcd` | etcd 分布式键值存储 | `New` (clientv3.Client) |
@@ -205,8 +205,8 @@ table.Eq("status", 1).
     Desc("id").
     Gorm().Find(&users)
 
-// 支持 Sharksql.Builder OR 查询
-b := sharksql.NewBuilder().Eq("status", "pending").Or(sharksql.NewBuilder().Eq("status", "done"))
+// 支持 SqlBuilder OR 查询
+b := sharksql.NewSql().Eq("status", "pending").Or(sharksql.NewSql().Eq("status", "done"))
 table.Eq("deleted", 0).Or(b).Gorm().Find(&tasks)
 ```
 
@@ -234,43 +234,67 @@ filePath, _ := scan.Export(ctx, db.Where("status = 1"),
 
 ### SQL 条件构建器 (`sharksql`)
 
-#### Builder — 动态 WHERE 子句
+#### SqlBuilder — 动态 WHERE/JOIN ON 子句
 
 ```go
 // 基础 AND
-b := sharksql.NewBuilder().Eq("status", 1).Gte("age", 18).Like("name", "张")
+b := sharksql.NewSql().Eq("status", 1).Gte("age", 18).Like("name", "张")
 
 // OR 查询
-b := sharksql.NewBuilder().Eq("created_by", uid).Or(sharksql.NewBuilder().Eq("assignee", uid))
+b := sharksql.NewSql().Eq("created_by", uid).Or(sharksql.NewSql().Eq("assignee", uid))
 
 // 复杂嵌套
-b := sharksql.NewBuilder().Eq("deleted", 0).
-    And(sharksql.NewBuilder().Eq("status", "pending").Or(sharksql.NewBuilder().Eq("status", "in_progress"))).
-    And(sharksql.NewBuilder().Eq("created_by", uid).Or(sharksql.NewBuilder().Eq("assignee", uid)))
+b := sharksql.NewSql().Eq("deleted", 0).
+    And(sharksql.NewSql().Eq("status", "pending").Or(sharksql.NewSql().Eq("status", "in_progress"))).
+    And(sharksql.NewSql().Eq("created_by", uid).Or(sharksql.NewSql().Eq("assignee", uid)))
 
 sql, args := b.Build()
 db.Where(sql, args...).Find(&results)
+
+// JOIN ON 子句（字段对字段比较）
+onB := sharksql.NewSql().EqCol("u.id", "o.user_id").Eq("o.deleted", 0)
+joinSQL, joinArgs := sharksql.LeftJoin("orders o", onB)
+// → LEFT JOIN orders o ON (u.id = o.user_id AND o.deleted = ?)
+db.Joins(joinSQL, joinArgs...).Find(&results)
 ```
 
 #### 条件函数（与 GORM Where/Having 直接配合）
 
 ```go
-// 20+ 条件函数
+// 比较运算符
 db.Where(sharksql.Eq("status", 1), sharksql.Gte("amount", 100), sharksql.Like("title", "订单")).Find(&orders)
 db.Where(sharksql.In("city", []string{"北京","上海"}), sharksql.IsNull("deleted_at")).Find(&users)
+db.Where(sharksql.Between("age", 18, 60)).Find(&users)  // age >= ? AND age < ?
 
 // 聚合函数
+db.Select(sharksql.Count("*")).Find(&countResult)
 db.Select(sharksql.SumAs("amount", "total", "fee", "total_fee")).Find(&result)
 db.Select(sharksql.CountAs("id", "total_count", "DISTINCT user_id", "unique_users")).Find(&result)
 db.Order(sharksql.Desc("created_at")).Find(&orders)
+
+// 去重
+db.Select(sharksql.Distinct("status")).Find(&statuses)
+
+// JOIN
+db.Joins(sharksql.LeftJoin("orders o", sharksql.NewSql().EqCol("u.id", "o.user_id"))).
+   Joins(sharksql.InnerJoin("accounts a", sharksql.NewSql().EqCol("u.account_id", "a.id"))).
+   Find(&results)
 
 // 字段算术更新
 db.Update("balance", gorm.Expr(sharksql.Add("balance", 100)))  // balance = balance + 100
 db.Update("price", gorm.Expr(sharksql.Mul("price", 1.1)))      // price = price * 1.1
 
 // MySQL JSON 操作
-db.Where(sharksql.JsonSearchOne("tags", "vip")).Find(&users)   // JSON_SEARCH(tags, 'one', '%vip%')
-db.Update("tags", gorm.Expr(sharksql.JsonArrayAppendObject("tags", obj)))
+db.Where(sharksql.JsonSearchOne("tags", "vip")).Find(&users)      // JSON_SEARCH
+db.Where(sharksql.JsonContains("roles", `"admin"`)).Find(&users)  // JSON_CONTAINS
+db.Select(sharksql.JsonExtract("metadata", "$.name")).Find(&r)    // JSON_EXTRACT
+db.Where(fmt.Sprintf("%s = ?", sharksql.JsonUnquote("metadata", "$.city")), "NYC").Find(&users)
+db.Update("tags", gorm.Expr(sharksql.JsonArrayAppend("tags", "new_tag")))
+db.Update("tags", gorm.Expr(sharksql.JsonRemove("tags", "$[0]")))
+db.Update("tags", gorm.Expr(sharksql.JsonArrayInsert("tags", "$[0]", "vip")))
+db.Select(sharksql.JsonLength("tags")).Find(&r)
+db.Select(sharksql.JsonKeys("metadata")).Find(&r)
+db.Where(fmt.Sprintf("%s = ?", sharksql.JsonType("metadata")), "OBJECT").Find(&r)
 
 // 分页
 users, total, _ := sharksql.PageQuery[User](db.Where("status = 1"), 1, 20)

@@ -296,6 +296,17 @@ func Desc(column string) string {
 
 // ========== 范围查询 ==========
 
+// Between 构建左闭右开区间条件 [lo, hi)：column >= ? AND column < ?。
+// 与 FromTo 等价，语义更清晰。
+//
+// 示例：
+//
+//	// SELECT * FROM orders WHERE amount >= ? AND amount < ?
+//	db.Where(sharksql.Between("amount", 100, 500)).Find(&orders)
+func Between(column string, lo any, hi any) (string, any, any) {
+	return column + " >= ? AND " + column + " < ?", lo, hi
+}
+
 // FromTo 构建左闭右开区间条件 [from, to)。
 // 等价于: column >= from AND column < to
 //
@@ -311,6 +322,23 @@ func FromTo(column string, from any, to any) (string, any, any) {
 }
 
 // ========== 聚合函数构建器（SELECT 子句）==========
+
+// Count 构建 COUNT 聚合表达式。
+// 用于 SELECT 子句中的行计数。
+//
+// 示例：
+//
+//	// SELECT count(id) FROM users
+//	db.Select(sharksql.Count("id")).Find(&result)
+//
+//	// SELECT count(*) FROM users
+//	db.Select(sharksql.Count("*")).Find(&result)
+//
+//	// SELECT count(DISTINCT user_id) FROM orders
+//	db.Select(sharksql.Count("DISTINCT user_id")).Find(&result)
+func Count(column string) string {
+	return fmt.Sprintf("count(%v)", column)
+}
 
 // Sum 构建 SUM 聚合表达式，别名与字段名相同。
 //
@@ -724,6 +752,136 @@ func JsonPath(path ...string) string {
 	return jsonPath
 }
 
+// JsonExtract 构建 JSON_EXTRACT 表达式，从 JSON 文档中提取路径对应的值。
+// path 参数为 JSON 路径，可使用 JsonPath() 构建或直接传入 "$.xxx" 字符串。
+//
+// 示例：
+//
+//	// SELECT JSON_EXTRACT(metadata, '$.name') FROM users
+//	db.Select(sharksql.JsonExtract("metadata", "$.name")).Find(&results)
+//
+//	// 配合 JsonPath 使用
+//	db.Select(sharksql.JsonExtract("metadata", sharksql.JsonPath("user", "name"))).Find(&results)
+//
+//	// 提取多个路径
+//	db.Select(sharksql.JsonExtract("metadata", "$.name", "$.age")).Find(&results)
+func JsonExtract(column string, path ...string) string {
+	if len(path) == 0 {
+		return fmt.Sprintf("JSON_EXTRACT(%v, '$')", column)
+	}
+	if len(path) == 1 {
+		return fmt.Sprintf("JSON_EXTRACT(%v, '%v')", column, path[0])
+	}
+	return fmt.Sprintf("JSON_EXTRACT(%v, '%v')", column, strings.Join(path, "', '"))
+}
+
+// JsonUnquote 构建 JSON_UNQUOTE(JSON_EXTRACT(...)) 表达式。
+// 提取 JSON 值并去除引号，常用于 WHERE/Having 条件中与字符串比较。
+//
+// 示例：
+//
+//	// SELECT * FROM users WHERE JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.city')) = 'NYC'
+//	db.Where(fmt.Sprintf("%s = ?", sharksql.JsonUnquote("metadata", "$.city")), "NYC").Find(&users)
+func JsonUnquote(column string, path string) string {
+	return fmt.Sprintf("JSON_UNQUOTE(JSON_EXTRACT(%v, '%v'))", column, path)
+}
+
+// JsonRemove 构建 JSON_REMOVE 表达式，从 JSON 文档中删除指定路径。
+// 通常配合 Update 使用。
+//
+// 示例：
+//
+//	// UPDATE users SET tags = JSON_REMOVE(tags, '$[0]') WHERE id = 1
+//	db.Model(&User{}).Where("id = ?", 1).
+//	    Update("tags", gorm.Expr(sharksql.JsonRemove("tags", "$[0]")))
+//
+//	// 删除多个路径
+//	db.Model(&User{}).Where("id = ?", 1).
+//	    Update("metadata", gorm.Expr(sharksql.JsonRemove("metadata", "$.temp", "$.cache")))
+func JsonRemove(column string, path ...string) string {
+	if len(path) == 1 {
+		return fmt.Sprintf("JSON_REMOVE(%v, '%v')", column, path[0])
+	}
+	return fmt.Sprintf("JSON_REMOVE(%v, '%v')", column, strings.Join(path, "', '"))
+}
+
+// JsonArrayInsert 构建 JSON_ARRAY_INSERT 表达式，在数组指定位置插入值。
+// path 为插入位置（如 "$[0]"），value 为要插入的值。
+// 如果列值为 NULL，自动初始化为空数组 JSON_ARRAY()。
+//
+// 示例：
+//
+//	// UPDATE users SET tags = JSON_ARRAY_INSERT(COALESCE(tags, JSON_ARRAY()), '$[0]', 'vip')
+//	db.Model(&User{}).Where("id = ?", 1).
+//	    Update("tags", gorm.Expr(sharksql.JsonArrayInsert("tags", "$[0]", "vip")))
+//
+//	// 支持非字符串类型（自动转 JSON）
+//	db.Model(&User{}).Where("id = ?", 1).
+//	    Update("tags", gorm.Expr(sharksql.JsonArrayInsert("tags", "$[1]", map[string]any{"name": "vip"})))
+func JsonArrayInsert(column string, path string, value any) (string, []any) {
+	sql := fmt.Sprintf("JSON_ARRAY_INSERT(COALESCE(%v, JSON_ARRAY()), '%v', CAST(? AS JSON))", column, path)
+	v := value
+	if _, ok := value.(string); !ok {
+		v = sharkjson.ToJsonString(value)
+	}
+	return sql, []any{v}
+}
+
+// JsonLength 构建 JSON_LENGTH 表达式，返回 JSON 文档的长度。
+// 数组返回元素个数，对象返回键的数量。
+//
+// 示例：
+//
+//	// SELECT JSON_LENGTH(tags) AS tag_count FROM users
+//	db.Select(sharksql.JsonLength("tags")).Find(&results)
+func JsonLength(column string) string {
+	return fmt.Sprintf("JSON_LENGTH(%v)", column)
+}
+
+// JsonKeys 构建 JSON_KEYS 表达式，返回 JSON 对象的键名数组。
+//
+// 示例：
+//
+//	// SELECT JSON_KEYS(metadata) AS meta_keys FROM users
+//	db.Select(sharksql.JsonKeys("metadata")).Find(&results)
+func JsonKeys(column string) string {
+	return fmt.Sprintf("JSON_KEYS(%v)", column)
+}
+
+// JsonType 构建 JSON_TYPE 表达式，返回 JSON 值的类型字符串。
+// 返回值如 "OBJECT"、"ARRAY"、"STRING"、"INTEGER" 等。
+//
+// 示例：
+//
+//	// SELECT * FROM users WHERE JSON_TYPE(metadata) = 'OBJECT'
+//	db.Where(fmt.Sprintf("%s = ?", sharksql.JsonType("metadata")), "OBJECT").Find(&users)
+func JsonType(column string) string {
+	return fmt.Sprintf("JSON_TYPE(%v)", column)
+}
+
+// ========== 去重 ==========
+
+// Distinct 构建 DISTINCT column 表达式。
+// 用于 SELECT 子句中去除重复列值。
+//
+// 示例：
+//
+//	// SELECT DISTINCT status FROM tasks
+//	db.Select(sharksql.Distinct("status")).Find(&results)
+//
+//	// 多列去重
+//	db.Select(sharksql.Distinct("user_id", "org_id")).Find(&results)
+//	// → SELECT DISTINCT(user_id, org_id)
+func Distinct(columns ...string) string {
+	if len(columns) == 0 {
+		return ""
+	}
+	if len(columns) == 1 {
+		return "DISTINCT " + columns[0]
+	}
+	return "DISTINCT(" + strings.Join(columns, ", ") + ")"
+}
+
 // ========== 表名/列名辅助函数 ==========
 
 // Column 构建 "table.column" 格式的限定列名。
@@ -752,4 +910,88 @@ func Column(table string, column string) string {
 //	).Joins("JOIN orders ON users.id = orders.user_id").Find(&result)
 func ColumnAs(table string, column string, as string) string {
 	return fmt.Sprintf("%v.%v as %v", table, column, as)
+}
+
+// LeftJoin 构建 LEFT JOIN 子句字符串和参数列表。
+//
+// 参数：
+//   - table: 要 JOIN 的表名及别名，如 "orders o" 或 "accounts a"
+//   - on:    SqlBuilder 实例，用于构建 ON 条件（支持字段对字段和字段对值的混合）
+//
+// 返回值：
+//   - string: 完整的 LEFT JOIN 子句（如 "LEFT JOIN orders o ON u.id = o.user_id AND o.deleted = ?"）
+//   - []any:  ON 条件中的参数值切片
+//
+// 使用示例：
+//
+//	// 基本 JOIN，纯字段关联
+//	onB := sharksql.NewSql().EqCol("u.id", "o.user_id")
+//	joinSQL, args := sharksql.LeftJoin("orders o", onB)
+//	// joinSQL: "LEFT JOIN orders o ON u.id = o.user_id"
+//	// args:    nil
+//	db.Joins(joinSQL, args...).Find(&results)
+//
+//	// 带额外筛选条件的 JOIN
+//	onB := sharksql.NewSql().
+//	    EqCol("u.id", "o.user_id").
+//	    Eq("o.deleted", 0)
+//	joinSQL, args := sharksql.LeftJoin("orders o", onB)
+//	// joinSQL: "LEFT JOIN orders o ON u.id = o.user_id AND o.deleted = ?"
+//	// args:    [0]
+//	db.Joins(joinSQL, args...).Find(&results)
+//
+//	// 多表 JOIN
+//	db.Joins(sharksql.LeftJoin("orders o", sharksql.NewSql().EqCol("u.id", "o.user_id"))).
+//	    Joins(sharksql.LeftJoin("accounts a", sharksql.NewSql().EqCol("u.account_id", "a.id"))).
+//	    Find(&results)
+//
+//	// on 为 nil 或 Build 结果为空时，返回空字符串
+//	joinSQL, args := sharksql.LeftJoin("orders o", nil)
+//	// joinSQL: ""
+//	// args:    nil
+func LeftJoin(table string, on *SqlBuilder) (string, []any) {
+	if on == nil {
+		return "", nil
+	}
+	sql, args := on.Build()
+	if sql == "" {
+		return "", nil
+	}
+	return "LEFT JOIN " + table + " ON " + sql, args
+}
+
+// InnerJoin 构建 INNER JOIN 子句字符串和参数列表。
+//
+// 参数和返回值说明同 LeftJoin，区别在于使用 INNER JOIN 而非 LEFT JOIN。
+//
+// 使用示例：
+//
+//	// 基本 INNER JOIN，纯字段关联
+//	onB := sharksql.NewSql().EqCol("u.id", "o.user_id")
+//	joinSQL, args := sharksql.InnerJoin("orders o", onB)
+//	// joinSQL: "INNER JOIN orders o ON u.id = o.user_id"
+//	// args:    nil
+//	db.Joins(joinSQL, args...).Find(&results)
+//
+//	// 带额外筛选条件的 INNER JOIN
+//	onB := sharksql.NewSql().
+//	    EqCol("u.id", "o.user_id").
+//	    Eq("o.deleted", 0)
+//	joinSQL, args := sharksql.InnerJoin("orders o", onB)
+//	// joinSQL: "INNER JOIN orders o ON u.id = o.user_id AND o.deleted = ?"
+//	// args:    [0]
+//
+//	// on 为 nil 或 Build 结果为空时，返回空字符串
+//	joinSQL, args := sharksql.InnerJoin("orders o", nil)
+//	// joinSQL: ""
+//	// args:    nil
+func InnerJoin(table string, on *SqlBuilder) (string, []any) {
+	if on == nil {
+		return "", nil
+	}
+	sql, args := on.Build()
+	if sql == "" {
+		return "", nil
+	}
+	return "INNER JOIN " + table + " ON " + sql, args
 }

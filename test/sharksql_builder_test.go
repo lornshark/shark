@@ -7,7 +7,7 @@ import (
 )
 
 func TestBuilderBasic(t *testing.T) {
-	b := sharksql.NewBuilder().Eq("status", 1)
+	b := sharksql.NewSql().Eq("status", 1)
 	sql, args := b.Build()
 	if sql != "status = ?" {
 		t.Errorf("sql = %s, want status = ?", sql)
@@ -18,7 +18,7 @@ func TestBuilderBasic(t *testing.T) {
 }
 
 func TestBuilderMultipleAND(t *testing.T) {
-	b := sharksql.NewBuilder().
+	b := sharksql.NewSql().
 		Eq("status", 1).
 		Gte("age", 18).
 		Lt("age", 60)
@@ -33,9 +33,9 @@ func TestBuilderMultipleAND(t *testing.T) {
 }
 
 func TestBuilderOr(t *testing.T) {
-	b := sharksql.NewBuilder().
+	b := sharksql.NewSql().
 		Eq("created_by", 1).
-		Or(sharksql.NewBuilder().Eq("assignee", 1))
+		Or(sharksql.NewSql().Eq("assignee", 1))
 	sql, args := b.Build()
 	if sql != "created_by = ? OR assignee = ?" {
 		t.Errorf("sql = %s", sql)
@@ -46,8 +46,8 @@ func TestBuilderOr(t *testing.T) {
 }
 
 func TestBuilderAndSingleGroup(t *testing.T) {
-	b := sharksql.NewBuilder().Eq("a", 1)
-	other := sharksql.NewBuilder().Eq("b", 2).Eq("c", 3)
+	b := sharksql.NewSql().Eq("a", 1)
+	other := sharksql.NewSql().Eq("b", 2).Eq("c", 3)
 	b.And(other)
 	sql, _ := b.Build()
 	if sql != "(a = ? AND b = ? AND c = ?)" {
@@ -56,8 +56,8 @@ func TestBuilderAndSingleGroup(t *testing.T) {
 }
 
 func TestBuilderAndMultiGroup(t *testing.T) {
-	b := sharksql.NewBuilder().Eq("deleted", 0)
-	sub := sharksql.NewBuilder().Eq("status", "pending").Or(sharksql.NewBuilder().Eq("status", "in_progress"))
+	b := sharksql.NewSql().Eq("deleted", 0)
+	sub := sharksql.NewSql().Eq("status", "pending").Or(sharksql.NewSql().Eq("status", "in_progress"))
 	b.And(sub)
 	sql, _ := b.Build()
 	expected := "(deleted = ? AND (status = ? OR status = ?))"
@@ -67,7 +67,7 @@ func TestBuilderAndMultiGroup(t *testing.T) {
 }
 
 func TestBuilderEmptyValueSkip(t *testing.T) {
-	b := sharksql.NewBuilder().
+	b := sharksql.NewSql().
 		Eq("name", nil).
 		Eq("status", 1).
 		In("ids", []int{})
@@ -81,7 +81,7 @@ func TestBuilderEmptyValueSkip(t *testing.T) {
 }
 
 func TestBuilderBetween(t *testing.T) {
-	b := sharksql.NewBuilder().Between("age", 18, 60)
+	b := sharksql.NewSql().Between("age", 18, 60)
 	sql, args := b.Build()
 	expected := "(age >= ? AND age < ?)"
 	if sql != expected {
@@ -93,7 +93,7 @@ func TestBuilderBetween(t *testing.T) {
 }
 
 func TestBuilderBetweenNilSkip(t *testing.T) {
-	b := sharksql.NewBuilder().Between("age", 18, nil).Eq("status", 1)
+	b := sharksql.NewSql().Between("age", 18, nil).Eq("status", 1)
 	sql, _ := b.Build()
 	if sql != "status = ?" {
 		t.Errorf("Between with nil should skip, sql = %s", sql)
@@ -101,7 +101,7 @@ func TestBuilderBetweenNilSkip(t *testing.T) {
 }
 
 func TestBuilderLike(t *testing.T) {
-	b := sharksql.NewBuilder().Like("name", "张")
+	b := sharksql.NewSql().Like("name", "张")
 	sql, args := b.Build()
 	if sql != "name LIKE ?" {
 		t.Errorf("sql = %s", sql)
@@ -112,7 +112,7 @@ func TestBuilderLike(t *testing.T) {
 }
 
 func TestBuilderLikeLeft(t *testing.T) {
-	b := sharksql.NewBuilder().LikeLeft("email", "@qq.com")
+	b := sharksql.NewSql().LikeLeft("email", "@qq.com")
 	_, args := b.Build()
 	if args[0] != "%@qq.com" {
 		t.Errorf("args[0] = %v, want %%@qq.com", args[0])
@@ -120,7 +120,7 @@ func TestBuilderLikeLeft(t *testing.T) {
 }
 
 func TestBuilderLikeRight(t *testing.T) {
-	b := sharksql.NewBuilder().LikeRight("phone", "138")
+	b := sharksql.NewSql().LikeRight("phone", "138")
 	_, args := b.Build()
 	if args[0] != "138%" {
 		t.Errorf("args[0] = %v, want 138%%", args[0])
@@ -128,23 +128,23 @@ func TestBuilderLikeRight(t *testing.T) {
 }
 
 func TestBuilderIn(t *testing.T) {
-	b := sharksql.NewBuilder().In("status", []int{1, 2, 3})
+	b := sharksql.NewSql().In("status", []int{1, 2, 3})
 	sql, _ := b.Build()
-	if sql != "status IN ?" {
+	if sql != "status IN (?)" {
 		t.Errorf("sql = %s", sql)
 	}
 }
 
 func TestBuilderNotIn(t *testing.T) {
-	b := sharksql.NewBuilder().NotIn("id", []int64{100, 200})
+	b := sharksql.NewSql().NotIn("id", []int64{100, 200})
 	sql, _ := b.Build()
-	if sql != "id NOT IN ?" {
+	if sql != "id NOT IN (?)" {
 		t.Errorf("sql = %s", sql)
 	}
 }
 
 func TestBuilderInNonSliceSkip(t *testing.T) {
-	b := sharksql.NewBuilder().In("status", "not-a-slice").Eq("id", 1)
+	b := sharksql.NewSql().In("status", "not-a-slice").Eq("id", 1)
 	sql, _ := b.Build()
 	if sql != "id = ?" {
 		t.Errorf("非切片 In 应跳过, sql = %s", sql)
@@ -152,7 +152,7 @@ func TestBuilderInNonSliceSkip(t *testing.T) {
 }
 
 func TestBuilderIsNull(t *testing.T) {
-	b := sharksql.NewBuilder().IsNull("deleted_at").Eq("status", 1)
+	b := sharksql.NewSql().IsNull("deleted_at").Eq("status", 1)
 	sql, _ := b.Build()
 	if sql != "(deleted_at IS NULL AND status = ?)" {
 		t.Errorf("sql = %s", sql)
@@ -160,7 +160,7 @@ func TestBuilderIsNull(t *testing.T) {
 }
 
 func TestBuilderIsNotNull(t *testing.T) {
-	b := sharksql.NewBuilder().IsNotNull("email")
+	b := sharksql.NewSql().IsNotNull("email")
 	sql, _ := b.Build()
 	if sql != "email IS NOT NULL" {
 		t.Errorf("sql = %s", sql)
@@ -168,7 +168,7 @@ func TestBuilderIsNotNull(t *testing.T) {
 }
 
 func TestBuilderNotLike(t *testing.T) {
-	b := sharksql.NewBuilder().NotLike("name", "test")
+	b := sharksql.NewSql().NotLike("name", "test")
 	sql, args := b.Build()
 	if sql != "name NOT LIKE ?" {
 		t.Errorf("sql = %s", sql)
@@ -179,10 +179,10 @@ func TestBuilderNotLike(t *testing.T) {
 }
 
 func TestBuilderMultiplyOR(t *testing.T) {
-	b := sharksql.NewBuilder().
+	b := sharksql.NewSql().
 		Eq("status", "pending").
-		Or(sharksql.NewBuilder().Eq("status", "in_progress")).
-		Or(sharksql.NewBuilder().Eq("status", "done"))
+		Or(sharksql.NewSql().Eq("status", "in_progress")).
+		Or(sharksql.NewSql().Eq("status", "done"))
 	sql, _ := b.Build()
 	expected := "status = ? OR status = ? OR status = ?"
 	if sql != expected {
@@ -191,7 +191,7 @@ func TestBuilderMultiplyOR(t *testing.T) {
 }
 
 func TestBuilderAllEmpty(t *testing.T) {
-	b := sharksql.NewBuilder().
+	b := sharksql.NewSql().
 		Eq("name", nil).
 		In("ids", []int{}).
 		Between("age", nil, 60)
@@ -206,9 +206,9 @@ func TestBuilderAllEmpty(t *testing.T) {
 
 func TestBuilderComplexNested(t *testing.T) {
 	// (deleted = ? AND (status = ? OR status = ?) AND (created_by = ? OR assignee = ?))
-	b := sharksql.NewBuilder().Eq("deleted", 0).
-		And(sharksql.NewBuilder().Eq("status", "pending").Or(sharksql.NewBuilder().Eq("status", "done"))).
-		And(sharksql.NewBuilder().Eq("created_by", 1).Or(sharksql.NewBuilder().Eq("assignee", 2)))
+	b := sharksql.NewSql().Eq("deleted", 0).
+		And(sharksql.NewSql().Eq("status", "pending").Or(sharksql.NewSql().Eq("status", "done"))).
+		And(sharksql.NewSql().Eq("created_by", 1).Or(sharksql.NewSql().Eq("assignee", 2)))
 	sql, args := b.Build()
 	expected := "(deleted = ? AND (status = ? OR status = ?) AND (created_by = ? OR assignee = ?))"
 	if sql != expected {
@@ -222,7 +222,7 @@ func TestBuilderComplexNested(t *testing.T) {
 }
 
 func TestBuilderOrNil(t *testing.T) {
-	b := sharksql.NewBuilder().Eq("a", 1).Or(nil)
+	b := sharksql.NewSql().Eq("a", 1).Or(nil)
 	sql, _ := b.Build()
 	if sql != "a = ?" {
 		t.Errorf("Or(nil) should be noop, got %s", sql)
@@ -230,7 +230,7 @@ func TestBuilderOrNil(t *testing.T) {
 }
 
 func TestBuilderAndNil(t *testing.T) {
-	b := sharksql.NewBuilder().Eq("a", 1).And(nil)
+	b := sharksql.NewSql().Eq("a", 1).And(nil)
 	sql, _ := b.Build()
 	if sql != "a = ?" {
 		t.Errorf("And(nil) should be noop, got %s", sql)
@@ -238,7 +238,7 @@ func TestBuilderAndNil(t *testing.T) {
 }
 
 func TestBuilderAndEmpty(t *testing.T) {
-	b := sharksql.NewBuilder().Eq("a", 1).And(sharksql.NewBuilder())
+	b := sharksql.NewSql().Eq("a", 1).And(sharksql.NewSql())
 	sql, _ := b.Build()
 	if sql != "a = ?" {
 		t.Errorf("And(empty) should be noop, got %s", sql)
@@ -246,7 +246,7 @@ func TestBuilderAndEmpty(t *testing.T) {
 }
 
 func TestBuilderNeq(t *testing.T) {
-	b := sharksql.NewBuilder().Neq("status", 0)
+	b := sharksql.NewSql().Neq("status", 0)
 	sql, _ := b.Build()
 	if sql != "status <> ?" {
 		t.Errorf("sql = %s, want status <> ?", sql)
@@ -254,10 +254,95 @@ func TestBuilderNeq(t *testing.T) {
 }
 
 func TestBuilderGteLte(t *testing.T) {
-	b := sharksql.NewBuilder().Gte("score", 60).Lte("score", 100)
+	b := sharksql.NewSql().Gte("score", 60).Lte("score", 100)
 	sql, _ := b.Build()
 	expected := "(score >= ? AND score <= ?)"
 	if sql != expected {
 		t.Errorf("sql = %s, want %s", sql, expected)
+	}
+}
+
+// ========== 字段对字段（EqCol 等）测试 ==========
+
+func TestBuilderEqCol(t *testing.T) {
+	b := sharksql.NewSql().EqCol("u.id", "o.user_id")
+	sql, args := b.Build()
+	if sql != "u.id = o.user_id" {
+		t.Errorf("sql = %s, want u.id = o.user_id", sql)
+	}
+	if len(args) != 0 {
+		t.Errorf("EqCol should not produce args, got %v", args)
+	}
+}
+
+func TestBuilderEqColWithValue(t *testing.T) {
+	// 混合字段对字段和字段对值
+	b := sharksql.NewSql().
+		EqCol("u.id", "o.user_id").
+		EqCol("u.org_id", "o.org_id").
+		Eq("o.deleted", 0)
+	sql, args := b.Build()
+	expected := "(u.id = o.user_id AND u.org_id = o.org_id AND o.deleted = ?)"
+	if sql != expected {
+		t.Errorf("sql = %s, want %s", sql, expected)
+	}
+	if len(args) != 1 || args[0] != 0 {
+		t.Errorf("args = %v, want [0]", args)
+	}
+}
+
+func TestBuilderNeqCol(t *testing.T) {
+	b := sharksql.NewSql().NeqCol("u.status", "o.status")
+	sql, _ := b.Build()
+	if sql != "u.status <> o.status" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestBuilderGtCol(t *testing.T) {
+	b := sharksql.NewSql().GtCol("u.score", "o.pass_score")
+	sql, _ := b.Build()
+	if sql != "u.score > o.pass_score" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestBuilderGteCol(t *testing.T) {
+	b := sharksql.NewSql().GteCol("t1.amount", "t2.min_amount")
+	sql, _ := b.Build()
+	if sql != "t1.amount >= t2.min_amount" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestBuilderLtCol(t *testing.T) {
+	b := sharksql.NewSql().LtCol("a.start_time", "b.end_time")
+	sql, _ := b.Build()
+	if sql != "a.start_time < b.end_time" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestBuilderLteCol(t *testing.T) {
+	b := sharksql.NewSql().LteCol("a.end_time", "b.start_time")
+	sql, _ := b.Build()
+	if sql != "a.end_time <= b.start_time" {
+		t.Errorf("sql = %s", sql)
+	}
+}
+
+func TestBuilderJoinOnExample(t *testing.T) {
+	// 模拟真实的 JOIN ON 场景
+	// LEFT JOIN orders o ON u.id = o.user_id AND o.deleted = 0
+	onB := sharksql.NewSql().
+		EqCol("u.id", "o.user_id").
+		Eq("o.deleted", 0)
+	sql, args := onB.Build()
+	expected := "(u.id = o.user_id AND o.deleted = ?)"
+	if sql != expected {
+		t.Errorf("sql = %s, want %s", sql, expected)
+	}
+	if len(args) != 1 || args[0] != 0 {
+		t.Errorf("args = %v, want [0]", args)
 	}
 }
