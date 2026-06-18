@@ -44,6 +44,8 @@ func NewTable(db *gorm.DB) *SharkTable {
 }
 
 func NewTableWithReq(db *gorm.DB, req any) *SharkTable {
+	sql, args := sharksql.Where(req)
+	db = db.Where(sql, args...)
 	return &SharkTable{db: db}
 }
 
