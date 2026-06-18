@@ -496,3 +496,93 @@ func TestSharkTableChainedQuery(t *testing.T) {
 		}
 	}
 }
+
+// ========== AddCol / SubCol / MulCol / DivCol / As 测试 ==========
+
+func TestSharkTableAddCol(t *testing.T) {
+	table := newSharkTable(t, "users")
+	s := table.AddCol("base_salary", "bonus")
+	if s != "base_salary + bonus" {
+		t.Errorf("AddCol = %s, want base_salary + bonus", s)
+	}
+}
+
+func TestSharkTableAddColAs(t *testing.T) {
+	table := newSharkTable(t, "users")
+	s := table.AddColAs("base_salary", "bonus", "total_income")
+	if s != "(base_salary + bonus) as total_income" {
+		t.Errorf("AddColAs = %s", s)
+	}
+}
+
+func TestSharkTableSubCol(t *testing.T) {
+	table := newSharkTable(t, "users")
+	s := table.SubCol("revenue", "cost")
+	if s != "revenue - cost" {
+		t.Errorf("SubCol = %s, want revenue - cost", s)
+	}
+}
+
+func TestSharkTableMulCol(t *testing.T) {
+	table := newSharkTable(t, "users")
+	s := table.MulCol("price", "quantity")
+	if s != "price * quantity" {
+		t.Errorf("MulCol = %s, want price * quantity", s)
+	}
+}
+
+func TestSharkTableDivCol(t *testing.T) {
+	table := newSharkTable(t, "users")
+	s := table.DivCol("total_score", "count")
+	if s != "total_score / count" {
+		t.Errorf("DivCol = %s, want total_score / count", s)
+	}
+}
+
+func TestSharkTableAddColSelect(t *testing.T) {
+	table := newSharkTable(t, "users")
+	table.Select(table.AddCol("base_salary", "bonus"))
+	sql := findAndSQL(table)
+	if !strings.Contains(sql, "base_salary + bonus") {
+		t.Errorf("应包含 'base_salary + bonus': %s", sql)
+	}
+}
+
+func TestSharkTableAddColAsSelect(t *testing.T) {
+	table := newSharkTable(t, "users")
+	table.Select(table.AddColAs("principal", "interest", "total"))
+	sql := findAndSQL(table)
+	if !strings.Contains(sql, "(principal + interest) as total") {
+		t.Errorf("应包含 '(principal + interest) as total': %s", sql)
+	}
+}
+
+func TestSharkTableMulColAsSelect(t *testing.T) {
+	table := newSharkTable(t, "users")
+	table.Select(table.MulColAs("price", "quantity", "total_amount"))
+	sql := findAndSQL(table)
+	if !strings.Contains(sql, "(price * quantity) as total_amount") {
+		t.Errorf("应包含 '(price * quantity) as total_amount': %s", sql)
+	}
+}
+
+func TestSharkTableMixedSelect(t *testing.T) {
+	table := newSharkTable(t, "users")
+	table.Select(
+		table.AddColAs("principal", "interest", "total"),
+		sharksql.Sum("bet_amount", "win_amount"),
+		table.MulColAs("price", "quantity", "total_amount"),
+	)
+	sql := findAndSQL(table)
+	checks := []string{
+		"(principal + interest) as total",
+		"sum(bet_amount)",
+		"sum(win_amount)",
+		"(price * quantity) as total_amount",
+	}
+	for _, check := range checks {
+		if !strings.Contains(sql, check) {
+			t.Errorf("应包含 '%s': %s", check, sql)
+		}
+	}
+}

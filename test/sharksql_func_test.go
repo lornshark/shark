@@ -1,6 +1,7 @@
 package test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lornshark/shark/sharksql"
@@ -161,7 +162,7 @@ func TestFromTo(t *testing.T) {
 
 func TestSum(t *testing.T) {
 	s := sharksql.Sum("bet_amount", "win_amount")
-	if s != "sum(bet_amount) as bet_amount, sum(win_amount) as win_amount" {
+	if s != "sum(bet_amount), sum(win_amount)" {
 		t.Errorf("Sum = %s", s)
 	}
 }
@@ -189,7 +190,7 @@ func TestCountAs(t *testing.T) {
 
 func TestAvg(t *testing.T) {
 	s := sharksql.Avg("math_score", "english_score")
-	if s != "avg(math_score) as math_score, avg(english_score) as english_score" {
+	if s != "avg(math_score), avg(english_score)" {
 		t.Errorf("Avg = %s", s)
 	}
 }
@@ -203,7 +204,7 @@ func TestAvgAs(t *testing.T) {
 
 func TestMax(t *testing.T) {
 	s := sharksql.Max("high_temp", "low_temp")
-	if s != "max(high_temp) as high_temp, max(low_temp) as low_temp" {
+	if s != "max(high_temp), max(low_temp)" {
 		t.Errorf("Max = %s", s)
 	}
 }
@@ -217,7 +218,7 @@ func TestMaxAs(t *testing.T) {
 
 func TestMin(t *testing.T) {
 	s := sharksql.Min("price")
-	if s != "min(price) as price" {
+	if s != "min(price)" {
 		t.Errorf("Min = %s", s)
 	}
 }
@@ -600,5 +601,109 @@ func TestInnerJoinEmptyOn(t *testing.T) {
 	}
 	if len(args) != 0 {
 		t.Errorf("empty on args should be nil, got %v", args)
+	}
+}
+
+// ========== AddCol / SubCol / MulCol / DivCol / As 测试 ==========
+
+func TestAddCol(t *testing.T) {
+	s := sharksql.AddCol("base_salary", "bonus")
+	if s != "base_salary + bonus" {
+		t.Errorf("AddCol = %s, want base_salary + bonus", s)
+	}
+}
+
+func TestAddColAs(t *testing.T) {
+	s := sharksql.AddColAs("base_salary", "bonus", "total_income")
+	if s != "(base_salary + bonus) as total_income" {
+		t.Errorf("AddColAs = %s", s)
+	}
+}
+
+func TestSubCol(t *testing.T) {
+	s := sharksql.SubCol("revenue", "cost")
+	if s != "revenue - cost" {
+		t.Errorf("SubCol = %s, want revenue - cost", s)
+	}
+}
+
+func TestSubColAs(t *testing.T) {
+	s := sharksql.SubColAs("revenue", "cost", "profit")
+	if s != "(revenue - cost) as profit" {
+		t.Errorf("SubColAs = %s", s)
+	}
+}
+
+func TestMulCol(t *testing.T) {
+	s := sharksql.MulCol("price", "quantity")
+	if s != "price * quantity" {
+		t.Errorf("MulCol = %s, want price * quantity", s)
+	}
+}
+
+func TestMulColAs(t *testing.T) {
+	s := sharksql.MulColAs("price", "quantity", "total_amount")
+	if s != "(price * quantity) as total_amount" {
+		t.Errorf("MulColAs = %s", s)
+	}
+}
+
+func TestDivCol(t *testing.T) {
+	s := sharksql.DivCol("total_score", "count")
+	if s != "total_score / count" {
+		t.Errorf("DivCol = %s, want total_score / count", s)
+	}
+}
+
+func TestDivColAs(t *testing.T) {
+	s := sharksql.DivColAs("total_score", "count", "avg_score")
+	if s != "(total_score / count) as avg_score" {
+		t.Errorf("DivColAs = %s", s)
+	}
+}
+
+func TestAs(t *testing.T) {
+	s := sharksql.As(sharksql.Count("id"), "total_count")
+	if s != "(count(id)) as total_count" {
+		t.Errorf("As = %s", s)
+	}
+}
+
+func TestAddColSelectPattern(t *testing.T) {
+	// 模拟典型使用模式: SELECT (column + otherColumn) as alias
+	fields := []string{
+		sharksql.AddColAs("principal", "interest", "total"),
+		sharksql.AddColAs("base", "bonus", "income"),
+	}
+	result := strings.Join(fields, ", ")
+	expected := "(principal + interest) as total, (base + bonus) as income"
+	if result != expected {
+		t.Errorf("Select pattern = %s, want %s", result, expected)
+	}
+}
+
+func TestMulColSelectPattern(t *testing.T) {
+	// 模拟典型使用模式: SELECT (column * otherColumn) as alias
+	fields := []string{
+		sharksql.MulColAs("price", "quantity", "total_amount"),
+		sharksql.MulColAs("unit_price", "count", "sub_total"),
+	}
+	result := strings.Join(fields, ", ")
+	expected := "(price * quantity) as total_amount, (unit_price * count) as sub_total"
+	if result != expected {
+		t.Errorf("Select pattern = %s, want %s", result, expected)
+	}
+}
+
+func TestMixedWithSum(t *testing.T) {
+	// 混合使用 AddColAs 和 Sum 聚合函数
+	fields := []string{
+		sharksql.AddColAs("principal", "interest", "total"),
+		sharksql.Sum("bet_amount", "win_amount"),
+	}
+	result := strings.Join(fields, ", ")
+	expected := "(principal + interest) as total, sum(bet_amount), sum(win_amount)"
+	if result != expected {
+		t.Errorf("Mixed = %s, want %s", result, expected)
 	}
 }

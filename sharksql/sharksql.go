@@ -266,6 +266,115 @@ func Div(column string, value any) (string, any) {
 	return column + " / ?", value
 }
 
+// ========== 字段对字段算术运算符（SELECT/UPDATE 子句）==========
+
+// AddCol 构建字段对字段加法表达式：column + otherColumn。
+// 用于 SELECT 子句中将两个字段值相加。
+//
+// 示例：
+//
+//	// UPDATE accounts SET total = principal + interest
+//	db.Update("total", gorm.Expr(sharksql.AddCol("principal", "interest")))
+func AddCol(column string, otherColumn string) string {
+	return column + " + " + otherColumn
+}
+
+// AddColAs 构建字段对字段加法表达式并指定别名：(column + otherColumn) as alias。
+// 用于 SELECT 子句中将两个字段值相加并指定别名。
+//
+// 示例：
+//
+//	// SELECT (base_salary + bonus) as total FROM employees
+//	db.Select(sharksql.AddColAs("base_salary", "bonus", "total")).Find(&results)
+func AddColAs(column string, otherColumn string, as string) string {
+	return fmt.Sprintf("(%v + %v) as %v", column, otherColumn, as)
+}
+
+// SubCol 构建字段对字段减法表达式：column - otherColumn。
+// 用于 SELECT 子句中将两个字段值相减。
+//
+// 示例：
+//
+//	// UPDATE accounts SET profit = revenue - cost
+//	db.Update("profit", gorm.Expr(sharksql.SubCol("revenue", "cost")))
+func SubCol(column string, otherColumn string) string {
+	return column + " - " + otherColumn
+}
+
+// SubColAs 构建字段对字段减法表达式并指定别名：(column - otherColumn) as alias。
+// 用于 SELECT 子句中将两个字段值相减并指定别名。
+//
+// 示例：
+//
+//	// SELECT (revenue - cost) as profit FROM accounts
+//	db.Select(sharksql.SubColAs("revenue", "cost", "profit")).Find(&results)
+func SubColAs(column string, otherColumn string, as string) string {
+	return fmt.Sprintf("(%v - %v) as %v", column, otherColumn, as)
+}
+
+// MulCol 构建字段对字段乘法表达式：column * otherColumn。
+// 用于 SELECT 子句中将两个字段值相乘。
+//
+// 示例：
+//
+//	// UPDATE products SET total = unit_price * amount
+//	db.Update("total", gorm.Expr(sharksql.MulCol("unit_price", "amount")))
+func MulCol(column string, otherColumn string) string {
+	return column + " * " + otherColumn
+}
+
+// MulColAs 构建字段对字段乘法表达式并指定别名：(column * otherColumn) as alias。
+// 用于 SELECT 子句中将两个字段值相乘并指定别名。
+//
+// 示例：
+//
+//	// SELECT (price * quantity) as total_amount FROM orders
+//	db.Select(sharksql.MulColAs("price", "quantity", "total_amount")).Find(&results)
+func MulColAs(column string, otherColumn string, as string) string {
+	return fmt.Sprintf("(%v * %v) as %v", column, otherColumn, as)
+}
+
+// DivCol 构建字段对字段除法表达式：column / otherColumn。
+// 用于 SELECT 子句中将两个字段值相除。
+//
+// 示例：
+//
+//	// UPDATE scores SET avg = total_score / count WHERE count > 0
+//	db.Update("avg", gorm.Expr(sharksql.DivCol("total_score", "count")))
+func DivCol(column string, otherColumn string) string {
+	return column + " / " + otherColumn
+}
+
+// DivColAs 构建字段对字段除法表达式并指定别名：(column / otherColumn) as alias。
+// 用于 SELECT 子句中将两个字段值相除并指定别名。
+//
+// 示例：
+//
+//	// SELECT (total_score / count) as avg_score FROM scores
+//	db.Select(sharksql.DivColAs("total_score", "count", "avg_score")).Find(&results)
+func DivColAs(column string, otherColumn string, as string) string {
+	return fmt.Sprintf("(%v / %v) as %v", column, otherColumn, as)
+}
+
+// ========== 别名/表达式辅助 ==========
+
+// As 为表达式添加别名：(expression) as alias。
+// 可与任意字段表达式配合使用（AddCol/SubCol/MulCol/DivCol/聚合函数等）。
+//
+// 示例：
+//
+//	// SELECT (price * quantity) as total_amount FROM orders
+//	db.Select(sharksql.As(sharksql.MulCol("price", "quantity"), "total_amount")).Find(&results)
+//
+//	// SELECT (revenue - cost) as profit FROM accounts
+//	db.Select(sharksql.As(sharksql.SubCol("revenue", "cost"), "profit")).Find(&results)
+//
+//	// SELECT (principal + interest) as total FROM accounts
+//	db.Select(sharksql.As(sharksql.AddCol("principal", "interest"), "total")).Find(&results)
+func As(expression string, alias string) string {
+	return fmt.Sprintf("(%v) as %v", expression, alias)
+}
+
 // ========== 排序构建器（ORDER BY）==========
 
 // Asc 构建升序排序表达式。
@@ -340,16 +449,17 @@ func Count(column string) string {
 	return fmt.Sprintf("count(%v)", column)
 }
 
-// Sum 构建 SUM 聚合表达式，别名与字段名相同。
+// Sum 构建 SUM 聚合表达式。
+// 多个字段以逗号分隔，不追加别名。
 //
 // 示例：
 //
-//	// SELECT sum(bet_amount) AS bet_amount, sum(win_amount) AS win_amount FROM orders
+//	// SELECT sum(bet_amount), sum(win_amount) FROM orders
 //	db.Select(sharksql.Sum("bet_amount", "win_amount")).Find(&result)
 func Sum(column ...string) string {
 	sql := ""
 	for i := 0; i < len(column); i++ {
-		sql += fmt.Sprintf("sum(%v) as %v, ", column[i], column[i])
+		sql += fmt.Sprintf("sum(%v), ", column[i])
 	}
 	sql = strings.TrimSuffix(sql, ", ")
 	return sql
@@ -397,11 +507,12 @@ func CountAs(columns ...string) string {
 	return sql
 }
 
-// Avg 构建 AVG 聚合表达式，别名与字段名相同。
+// Avg 构建 AVG 聚合表达式。
+// 多个字段以逗号分隔，不追加别名。
 //
 // 示例：
 //
-//	// SELECT avg(score) AS score FROM exams
+//	// SELECT avg(score) FROM exams
 //	db.Select(sharksql.Avg("score")).Find(&result)
 //
 //	// 多字段平均
@@ -409,7 +520,7 @@ func CountAs(columns ...string) string {
 func Avg(columns ...string) string {
 	sql := ""
 	for i := 0; i < len(columns); i++ {
-		sql += fmt.Sprintf("avg(%v) as %v, ", columns[i], columns[i])
+		sql += fmt.Sprintf("avg(%v), ", columns[i])
 	}
 	sql = strings.TrimSuffix(sql, ", ")
 	return sql
@@ -436,11 +547,12 @@ func AvgAs(columns ...string) string {
 	return sql
 }
 
-// Max 构建 MAX 聚合表达式，别名与字段名相同。
+// Max 构建 MAX 聚合表达式。
+// 多个字段以逗号分隔，不追加别名。
 //
 // 示例：
 //
-//	// SELECT max(score) AS score FROM exams
+//	// SELECT max(score) FROM exams
 //	db.Select(sharksql.Max("score")).Find(&result)
 //
 //	// 多字段最大值
@@ -448,7 +560,7 @@ func AvgAs(columns ...string) string {
 func Max(columns ...string) string {
 	sql := ""
 	for i := 0; i < len(columns); i++ {
-		sql += fmt.Sprintf("max(%v) as %v, ", columns[i], columns[i])
+		sql += fmt.Sprintf("max(%v), ", columns[i])
 	}
 	sql = strings.TrimSuffix(sql, ", ")
 	return sql
@@ -475,16 +587,17 @@ func MaxAs(columns ...string) string {
 	return sql
 }
 
-// Min 构建 MIN 聚合表达式，别名与字段名相同。
+// Min 构建 MIN 聚合表达式。
+// 多个字段以逗号分隔，不追加别名。
 //
 // 示例：
 //
-//	// SELECT min(price) AS price FROM products
+//	// SELECT min(price) FROM products
 //	db.Select(sharksql.Min("price")).Find(&result)
 func Min(columns ...string) string {
 	sql := ""
 	for i := 0; i < len(columns); i++ {
-		sql += fmt.Sprintf("min(%v) as %v, ", columns[i], columns[i])
+		sql += fmt.Sprintf("min(%v), ", columns[i])
 	}
 	sql = strings.TrimSuffix(sql, ", ")
 	return sql

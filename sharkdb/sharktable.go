@@ -376,6 +376,107 @@ func (t *SharkTable) Desc(column string) *SharkTable {
 	return t
 }
 
+// ========== 字段对字段算术方法 ==========
+
+// AddCol 添加字段对字段加法表达式：column + otherColumn。
+// 用于 SELECT 子句。
+//
+// 示例：
+//
+//	table.Select(table.AddCol("principal", "interest"))
+//	// → SELECT principal + interest
+func (t *SharkTable) AddCol(column string, otherColumn string) string {
+	return sharksql.AddCol(column, otherColumn)
+}
+
+// AddColAs 添加字段对字段加法表达式并指定别名：(column + otherColumn) as alias。
+// 用于 SELECT 子句。
+//
+// 示例：
+//
+//	table.Select(table.AddColAs("base_salary", "bonus", "total"))
+//	// → SELECT (base_salary + bonus) as total
+func (t *SharkTable) AddColAs(column string, otherColumn string, as string) string {
+	return sharksql.AddColAs(column, otherColumn, as)
+}
+
+// SubCol 添加字段对字段减法表达式：column - otherColumn。
+// 用于 SELECT 子句。
+//
+// 示例：
+//
+//	table.Select(table.SubCol("revenue", "cost"))
+//	// → SELECT revenue - cost
+func (t *SharkTable) SubCol(column string, otherColumn string) string {
+	return sharksql.SubCol(column, otherColumn)
+}
+
+// SubColAs 添加字段对字段减法表达式并指定别名：(column - otherColumn) as alias。
+// 用于 SELECT 子句。
+//
+// 示例：
+//
+//	table.Select(table.SubColAs("revenue", "cost", "profit"))
+//	// → SELECT (revenue - cost) as profit
+func (t *SharkTable) SubColAs(column string, otherColumn string, as string) string {
+	return sharksql.SubColAs(column, otherColumn, as)
+}
+
+// MulCol 添加字段对字段乘法表达式：column * otherColumn。
+// 用于 SELECT 子句。
+//
+// 示例：
+//
+//	table.Select(table.MulCol("unit_price", "amount"))
+//	// → SELECT unit_price * amount
+func (t *SharkTable) MulCol(column string, otherColumn string) string {
+	return sharksql.MulCol(column, otherColumn)
+}
+
+// MulColAs 添加字段对字段乘法表达式并指定别名：(column * otherColumn) as alias。
+// 用于 SELECT 子句。
+//
+// 示例：
+//
+//	table.Select(table.MulColAs("price", "quantity", "total_amount"))
+//	// → SELECT (price * quantity) as total_amount
+func (t *SharkTable) MulColAs(column string, otherColumn string, as string) string {
+	return sharksql.MulColAs(column, otherColumn, as)
+}
+
+// DivCol 添加字段对字段除法表达式：column / otherColumn。
+// 用于 SELECT 子句。
+//
+// 示例：
+//
+//	table.Select(table.DivCol("total_score", "count"))
+//	// → SELECT total_score / count
+func (t *SharkTable) DivCol(column string, otherColumn string) string {
+	return sharksql.DivCol(column, otherColumn)
+}
+
+// DivColAs 添加字段对字段除法表达式并指定别名：(column / otherColumn) as alias。
+// 用于 SELECT 子句。
+//
+// 示例：
+//
+//	table.Select(table.DivColAs("total_score", "count", "avg_score"))
+//	// → SELECT (total_score / count) as avg_score
+func (t *SharkTable) DivColAs(column string, otherColumn string, as string) string {
+	return sharksql.DivColAs(column, otherColumn, as)
+}
+
+// As 为表达式添加别名：(expression) as alias。
+// 可与任意字段表达式配合使用。
+//
+// 示例：
+//
+//	table.Select(table.As(sharksql.Count("id"), "total_count"))
+//	// → SELECT (count(id)) as total_count
+func (t *SharkTable) As(expression string, alias string) string {
+	return sharksql.As(expression, alias)
+}
+
 // ========== JSON 方法 ==========
 
 // JsonExtract 添加 JSON_EXTRACT 到 SELECT。
