@@ -641,6 +641,194 @@ func MinAs(columns ...string) string {
 	return sql
 }
 
+// ========== COALESCE / IFNULL 表达式 ==========
+
+// Coalesce 构建 COALESCE 表达式：COALESCE(column, defaultValue)。
+// 用于 SELECT 子句中为 NULL 列提供默认值。
+//
+// column 为列名或表达式（如 sum(amount)），defaultValue 为回退默认值。
+//
+// 示例：
+//
+//	// SELECT COALESCE(nickname, '匿名用户') FROM users
+//	db.Select(sharksql.Coalesce("nickname", "'匿名用户'")).Find(&results)
+//
+//	// SELECT COALESCE(sum(amount), 0) as total_amount FROM orders
+//	db.Select(sharksql.Coalesce(sharksql.Sum("amount"), "0")).Find(&results)
+//
+// Coalesce 构建 COALESCE 表达式：COALESCE(v1, v2, ...)。
+// 参数个数可变，通过 Sprintf 拼接为 COALESCE(a, b, c, ...)。
+//
+// 示例：
+//
+//	// SELECT COALESCE(nickname, '匿名用户') FROM users
+//	db.Select(sharksql.Coalesce("nickname", "'匿名用户'")).Find(&results)
+//
+//	// SELECT COALESCE(a, b, c) FROM t
+//	db.Select(sharksql.Coalesce("a", "b", "c")).Find(&results)
+func Coalesce(args ...any) string {
+	ss := make([]string, len(args))
+	for i, v := range args {
+		ss[i] = fmt.Sprint(v)
+	}
+	return "COALESCE(" + strings.Join(ss, ", ") + ")"
+}
+
+// CoalesceAs 构建 COALESCE 表达式并指定别名：COALESCE(column, args...) as alias。
+// 最后一个参数为 alias。
+//
+// 示例：
+//
+//	// SELECT COALESCE(nickname, '匿名用户') as display_name FROM users
+//	db.Select(sharksql.CoalesceAs("nickname", "'匿名用户'", "display_name")).Find(&results)
+func CoalesceAs(column string, args ...any) string {
+	if len(args) == 0 {
+		return column
+	}
+	alias := fmt.Sprint(args[len(args)-1])
+	values := make([]string, 1, len(args))
+	values[0] = column
+	for i := 0; i < len(args)-1; i++ {
+		values = append(values, fmt.Sprint(args[i]))
+	}
+	return "COALESCE(" + strings.Join(values, ", ") + ") as " + alias
+}
+
+// IfNull 构建 IFNULL 表达式：IFNULL(column, defaultValue)。
+// MySQL 特有函数，功能与 COALESCE 类似但只接受两个参数。
+//
+// 示例：
+//
+//	// SELECT IFNULL(remark, '无备注') FROM tasks
+//	db.Select(sharksql.IfNull("remark", "'无备注'")).Find(&results)
+//
+//	// SELECT IFNULL(sum(amount), 0) as total FROM orders
+//	db.Select(sharksql.IfNull(sharksql.Sum("amount"), "0")).Find(&results)
+func IfNull(column string, value any) string {
+	return fmt.Sprintf("IFNULL(%v, %v)", column, value)
+}
+
+// IfNullAs 构建 IFNULL 表达式并指定别名：IFNULL(column, defaultValue) as alias。
+//
+// 示例：
+//
+//	// SELECT IFNULL(remark, '无备注') as remark_text FROM tasks
+//	db.Select(sharksql.IfNullAs("remark", "'无备注'", "remark_text")).Find(&results)
+func IfNullAs(column string, value any, alias string) string {
+	return fmt.Sprintf("IFNULL(%v, %v) as %v", column, value, alias)
+}
+
+// ========== CASE 表达式 ==========
+
+// Case 构建参数化 CASE 表达式：CASE column WHEN ? THEN ? ... END。
+//
+// 第一个参数为列名，后续参数为值/结果对。
+// 参数个数规则：
+//   - 除列名外为偶数个参数：无 ELSE 分支，全部为 WHEN/THEN 对
+//   - 除列名外为奇数个参数：最后一个参数为 ELSE 值，其余为 WHEN/THEN 对
+//
+// 所有值通过 ? 占位符参数化，返回 (sql, args) 元组。
+//
+// 示例：
+//
+//	// 有 ELSE
+//	sql, args := sharksql.Case("status", 0, "待支付", 1, "已支付", 2, "已取消", "未知")
+//	// sql:  CASE status WHEN ? THEN ? WHEN ? THEN ? WHEN ? THEN ? ELSE ? END
+//	// args: [0, 待支付, 1, 已支付, 2, 已取消, 未知]
+//	db.Select(sql, args...).Find(&results)
+//
+//	// 无 ELSE
+//	sql, args := sharksql.Case("score", 90, "优秀", 80, "良好", 60, "及格")
+//	// sql:  CASE score WHEN ? THEN ? WHEN ? THEN ? WHEN ? THEN ? END
+//	// args: [90, 优秀, 80, 良好, 60, 及格]
+func Case(column string, pairs ...any) string {
+	var sb strings.Builder
+	sb.WriteString("CASE ")
+	sb.WriteString(column)
+
+	total := len(pairs)
+	hasElse := total%2 != 0
+	pairCount := total
+	if hasElse {
+		pairCount = total - 1
+	}
+
+	for i := 0; i < pairCount; i += 2 {
+		sb.WriteString(" WHEN ")
+		sb.WriteString(fmt.Sprint(pairs[i]))
+		sb.WriteString(" THEN ")
+		sb.WriteString(fmt.Sprint(pairs[i+1]))
+	}
+
+	if hasElse {
+		sb.WriteString(" ELSE ")
+		sb.WriteString(fmt.Sprint(pairs[total-1]))
+	}
+
+	sb.WriteString(" END")
+	return sb.String()
+}
+
+// CaseAs 构建 CASE 表达式并指定别名：CASE column WHEN ... THEN ... END as alias。
+// 最后一个参数为 alias。
+//
+// 示例：
+//
+//	s := sharksql.CaseAs("status", "status_name", 0, "'待支付'", 1, "'已支付'", "'未知'")
+//	// CASE status WHEN 0 THEN '待支付' WHEN 1 THEN '已支付' ELSE '未知' END as status_name
+func CaseAs(column string, alias string, pairs ...any) string {
+	return Case(column, pairs...) + " as " + alias
+}
+
+// ========== WHEN 表达式 ==========
+
+// When 构建 WHEN ... THEN ... 表达式片段。
+// 参数双数（偶数个）：全部为 WHEN/THEN 对，无 ELSE。
+// 参数单数（奇数个）：最后一个参数为 ELSE 值，其余为 WHEN/THEN 对。
+//
+// 示例：
+//
+//	s := sharksql.When("a=1", 1, "b=2", 2, "c=3", 3, "d=4", 0)
+//	// WHEN a=1 THEN 1 WHEN b=2 THEN 2 WHEN c=3 THEN 3 WHEN d=4 THEN 0 (偶数，无 ELSE)
+//
+//	s := sharksql.When("a=1", 1, "b=2", 2, "c=3")
+//	// WHEN a=1 THEN 1 WHEN b=2 THEN 2 ELSE c=3 (奇数，最后是 ELSE)
+func When(args ...any) string {
+	total := len(args)
+	hasElse := total%2 != 0
+	pairCount := total
+	if hasElse {
+		pairCount = total - 1
+	}
+
+	var sb strings.Builder
+	for i := 0; i < pairCount; i += 2 {
+		sb.WriteString("WHEN ")
+		sb.WriteString(fmt.Sprint(args[i]))
+		sb.WriteString(" THEN ")
+		sb.WriteString(fmt.Sprint(args[i+1]))
+		sb.WriteString(" ")
+	}
+
+	if hasElse {
+		sb.WriteString("ELSE ")
+		sb.WriteString(fmt.Sprint(args[total-1]))
+	}
+
+	return strings.TrimSpace(sb.String())
+}
+
+// WhenAs 构建 WHEN ... THEN ... 表达式片段并指定别名。
+// 第二个参数为 alias，其余规则同 When。
+//
+// 示例：
+//
+//	s := sharksql.WhenAs("alias", "a=1", 1, "b=2", 2)
+//	// WHEN a=1 THEN 1 WHEN b=2 THEN 2 as alias (偶数，无 ELSE)
+func WhenAs(alias string, args ...any) string {
+	return When(args...) + " as " + alias
+}
+
 // ========== 分页查询 ==========
 
 // PageQuery 执行泛型分页查询，返回指定页的数据和总记录数。

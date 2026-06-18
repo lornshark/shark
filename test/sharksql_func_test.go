@@ -740,3 +740,141 @@ func TestParenEmpty(t *testing.T) {
 		t.Errorf("Paren empty = %s, want ()", s)
 	}
 }
+
+// ========== Coalesce 测试 ==========
+
+func TestCoalesce(t *testing.T) {
+	s := sharksql.Coalesce("nickname", "'匿名用户'")
+	if s != "COALESCE(nickname, '匿名用户')" {
+		t.Errorf("Coalesce = %s", s)
+	}
+}
+
+func TestCoalesceWithExpression(t *testing.T) {
+	s := sharksql.Coalesce(sharksql.Sum("amount"), "0")
+	if s != "COALESCE(sum(amount), 0)" {
+		t.Errorf("Coalesce with Sum = %s", s)
+	}
+}
+
+func TestCoalesceAs(t *testing.T) {
+	// 最后一个参数是 alias
+	s := sharksql.CoalesceAs("nickname", "'匿名用户'", "display_name")
+	if s != "COALESCE(nickname, '匿名用户') as display_name" {
+		t.Errorf("CoalesceAs = %s", s)
+	}
+}
+
+func TestCoalesceAsWithExpression(t *testing.T) {
+	s := sharksql.CoalesceAs(sharksql.Sum("amount"), "0", "total_amount")
+	if s != "COALESCE(sum(amount), 0) as total_amount" {
+		t.Errorf("CoalesceAs with Sum = %s", s)
+	}
+}
+
+func TestCoalesceMultiArgs(t *testing.T) {
+	s := sharksql.Coalesce("a", "b", "c")
+	if s != "COALESCE(a, b, c)" {
+		t.Errorf("Coalesce multi = %s", s)
+	}
+}
+
+// ========== IfNull 测试 ==========
+
+func TestIfNull(t *testing.T) {
+	s := sharksql.IfNull("remark", "'无备注'")
+	if s != "IFNULL(remark, '无备注')" {
+		t.Errorf("IfNull = %s", s)
+	}
+}
+
+func TestIfNullWithExpression(t *testing.T) {
+	s := sharksql.IfNull(sharksql.Sum("amount"), "0")
+	if s != "IFNULL(sum(amount), 0)" {
+		t.Errorf("IfNull with Sum = %s", s)
+	}
+}
+
+func TestIfNullAs(t *testing.T) {
+	s := sharksql.IfNullAs("remark", "'无备注'", "remark_text")
+	if s != "IFNULL(remark, '无备注') as remark_text" {
+		t.Errorf("IfNullAs = %s", s)
+	}
+}
+
+func TestIfNullAsWithExpression(t *testing.T) {
+	s := sharksql.IfNullAs(sharksql.Sum("amount"), "0", "total")
+	if s != "IFNULL(sum(amount), 0) as total" {
+		t.Errorf("IfNullAs with Sum = %s", s)
+	}
+}
+
+// ========== Case 测试 ==========
+
+func TestCaseWithElse(t *testing.T) {
+	s := sharksql.Case("status", "0", "'待支付'", "1", "'已支付'", "2", "'已取消'", "'未知'")
+	expected := "CASE status WHEN 0 THEN '待支付' WHEN 1 THEN '已支付' WHEN 2 THEN '已取消' ELSE '未知' END"
+	if s != expected {
+		t.Errorf("Case = %s", s)
+	}
+}
+
+func TestCaseWithoutElse(t *testing.T) {
+	s := sharksql.Case("score", "90", "'优秀'", "80", "'良好'", "60", "'及格'")
+	expected := "CASE score WHEN 90 THEN '优秀' WHEN 80 THEN '良好' WHEN 60 THEN '及格' END"
+	if s != expected {
+		t.Errorf("Case = %s", s)
+	}
+}
+
+func TestCaseSingleWithElse(t *testing.T) {
+	s := sharksql.Case("status", "0", "'待支付'", "'未知'")
+	expected := "CASE status WHEN 0 THEN '待支付' ELSE '未知' END"
+	if s != expected {
+		t.Errorf("Case = %s", s)
+	}
+}
+
+func TestCaseAs(t *testing.T) {
+	s := sharksql.CaseAs("status", "status_name", "0", "'待支付'", "1", "'已支付'", "'未知'")
+	expected := "CASE status WHEN 0 THEN '待支付' WHEN 1 THEN '已支付' ELSE '未知' END as status_name"
+	if s != expected {
+		t.Errorf("CaseAs = %s", s)
+	}
+}
+
+func TestCaseAsWithoutElse(t *testing.T) {
+	s := sharksql.CaseAs("score", "level", "90", "'优秀'", "80", "'良好'")
+	expected := "CASE score WHEN 90 THEN '优秀' WHEN 80 THEN '良好' END as level"
+	if s != expected {
+		t.Errorf("CaseAs = %s", s)
+	}
+}
+
+// ========== When 测试 ==========
+
+func TestWhenEven(t *testing.T) {
+	// 偶数个参数，没有 ELSE
+	s := sharksql.When("a=1", 1, "b=2", 2, "c=3", 3, "d=4", 0)
+	expected := "WHEN a=1 THEN 1 WHEN b=2 THEN 2 WHEN c=3 THEN 3 WHEN d=4 THEN 0"
+	if s != expected {
+		t.Errorf("When = %s", s)
+	}
+}
+
+func TestWhenOdd(t *testing.T) {
+	// 奇数个参数，最后一个是 ELSE
+	s := sharksql.When("a=1", 1, "b=2", 2, "c=3")
+	expected := "WHEN a=1 THEN 1 WHEN b=2 THEN 2 ELSE c=3"
+	if s != expected {
+		t.Errorf("When = %s", s)
+	}
+}
+
+func TestWhenAs(t *testing.T) {
+	s := sharksql.WhenAs("alias", "a=1", 1, "b=2", 2)
+	expected := "WHEN a=1 THEN 1 WHEN b=2 THEN 2 as alias"
+	if s != expected {
+		t.Errorf("WhenAs = %s", s)
+	}
+}

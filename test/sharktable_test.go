@@ -586,3 +586,104 @@ func TestSharkTableMixedSelect(t *testing.T) {
 		}
 	}
 }
+
+// ========== Coalesce 测试 ==========
+
+func TestSharkTableCoalesce(t *testing.T) {
+	table := newSharkTable(t, "users")
+	s := table.Coalesce("nickname", "'匿名用户'")
+	if s != "COALESCE(nickname, '匿名用户')" {
+		t.Errorf("Coalesce = %s", s)
+	}
+}
+
+func TestSharkTableCoalesceAs(t *testing.T) {
+	table := newSharkTable(t, "users")
+	s := table.CoalesceAs("nickname", "'匿名用户'", "display_name")
+	if s != "COALESCE(nickname, '匿名用户') as display_name" {
+		t.Errorf("CoalesceAs = %s", s)
+	}
+}
+
+func TestSharkTableCoalesceSelect(t *testing.T) {
+	table := newSharkTable(t, "users")
+	table.Select(table.Coalesce("nickname", "'匿名用户'"))
+	sql := findAndSQL(table)
+	if !strings.Contains(sql, "COALESCE(nickname, '匿名用户')") {
+		t.Errorf("应包含 COALESCE: %s", sql)
+	}
+}
+
+func TestSharkTableCoalesceAsSelect(t *testing.T) {
+	table := newSharkTable(t, "users")
+	table.Select(table.CoalesceAs("nickname", "'匿名用户'", "display_name"))
+	sql := findAndSQL(table)
+	if !strings.Contains(sql, "COALESCE(nickname, '匿名用户') as display_name") {
+		t.Errorf("应包含 COALESCE ... AS: %s", sql)
+	}
+}
+
+// ========== IfNull 测试 ==========
+
+func TestSharkTableIfNull(t *testing.T) {
+	table := newSharkTable(t, "users")
+	s := table.IfNull("remark", "'无备注'")
+	if s != "IFNULL(remark, '无备注')" {
+		t.Errorf("IfNull = %s", s)
+	}
+}
+
+func TestSharkTableIfNullAs(t *testing.T) {
+	table := newSharkTable(t, "users")
+	s := table.IfNullAs("remark", "'无备注'", "remark_text")
+	if s != "IFNULL(remark, '无备注') as remark_text" {
+		t.Errorf("IfNullAs = %s", s)
+	}
+}
+
+func TestSharkTableIfNullSelect(t *testing.T) {
+	table := newSharkTable(t, "users")
+	table.Select(table.IfNull("remark", "'无备注'"))
+	sql := findAndSQL(table)
+	if !strings.Contains(sql, "IFNULL(remark, '无备注')") {
+		t.Errorf("应包含 IFNULL: %s", sql)
+	}
+}
+
+func TestSharkTableIfNullAsSelect(t *testing.T) {
+	table := newSharkTable(t, "users")
+	table.Select(table.IfNullAs("remark", "'无备注'", "remark_text"))
+	sql := findAndSQL(table)
+	if !strings.Contains(sql, "IFNULL(remark, '无备注') as remark_text") {
+		t.Errorf("应包含 IFNULL ... AS: %s", sql)
+	}
+}
+
+// ========== Case 测试 ==========
+
+func TestSharkTableCaseWithElse(t *testing.T) {
+	table := newSharkTable(t, "users")
+	s := table.Case("status", "0", "'待支付'", "1", "'已支付'", "'未知'")
+	expected := "CASE status WHEN 0 THEN '待支付' WHEN 1 THEN '已支付' ELSE '未知' END"
+	if s != expected {
+		t.Errorf("Case = %s", s)
+	}
+}
+
+func TestSharkTableCaseWithoutElse(t *testing.T) {
+	table := newSharkTable(t, "users")
+	s := table.Case("score", "90", "'优秀'", "80", "'良好'")
+	expected := "CASE score WHEN 90 THEN '优秀' WHEN 80 THEN '良好' END"
+	if s != expected {
+		t.Errorf("Case = %s", s)
+	}
+}
+
+func TestSharkTableCaseAs(t *testing.T) {
+	table := newSharkTable(t, "users")
+	s := table.CaseAs("status", "status_name", "0", "'待支付'", "1", "'已支付'", "'未知'")
+	expected := "CASE status WHEN 0 THEN '待支付' WHEN 1 THEN '已支付' ELSE '未知' END as status_name"
+	if s != expected {
+		t.Errorf("CaseAs = %s", s)
+	}
+}

@@ -477,6 +477,75 @@ func (t *SharkTable) As(expression string, alias string) string {
 	return sharksql.As(expression, alias)
 }
 
+// Coalesce 构建 COALESCE 表达式：COALESCE(args...)。
+// 参数个数可变。
+//
+// 示例：
+//
+//	table.Select(table.Coalesce("nickname", "'匿名用户'"))
+//	// → SELECT COALESCE(nickname, '匿名用户')
+func (t *SharkTable) Coalesce(args ...any) string {
+	return sharksql.Coalesce(args...)
+}
+
+// CoalesceAs 构建 COALESCE 表达式并指定别名：COALESCE(column, args...) as alias。
+// 最后一个参数为 alias。
+//
+// 示例：
+//
+//	table.Select(table.CoalesceAs("nickname", "'匿名用户'", "display_name"))
+//	// → SELECT COALESCE(nickname, '匿名用户') as display_name
+func (t *SharkTable) CoalesceAs(column string, args ...any) string {
+	return sharksql.CoalesceAs(column, args...)
+}
+
+// IfNull 构建 IFNULL 表达式：IFNULL(column, defaultValue)。
+// MySQL 特有函数，功能与 COALESCE 类似但只接受两个参数。
+//
+// 示例：
+//
+//	table.Select(table.IfNull("remark", "'无备注'"))
+//	// → SELECT IFNULL(remark, '无备注')
+func (t *SharkTable) IfNull(column string, defaultValue string) string {
+	return sharksql.IfNull(column, defaultValue)
+}
+
+// IfNullAs 构建 IFNULL 表达式并指定别名：IFNULL(column, defaultValue) as alias。
+//
+// 示例：
+//
+//	table.Select(table.IfNullAs("remark", "'无备注'", "remark_text"))
+//	// → SELECT IFNULL(remark, '无备注') as remark_text
+func (t *SharkTable) IfNullAs(column string, defaultValue string, alias string) string {
+	return sharksql.IfNullAs(column, defaultValue, alias)
+}
+
+// Case 构建参数化 CASE 表达式：CASE column WHEN ? THEN ? ... END，返回 (sql, args) 元组。
+//
+// 示例：
+//
+//	sql, args := table.Case("status", 0, "待支付", 1, "已支付", "未知")
+//	// sql:  CASE status WHEN ? THEN ? WHEN ? THEN ? ELSE ? END
+//	// args: [0, 待支付, 1, 已支付, 未知]
+func (t *SharkTable) Case(column string, pairs ...any) string {
+	return sharksql.Case(column, pairs...)
+}
+
+// CaseAs 构建 CASE 表达式并指定别名，返回 string。
+func (t *SharkTable) CaseAs(column string, alias string, pairs ...any) string {
+	return sharksql.CaseAs(column, alias, pairs...)
+}
+
+// When 构建 WHEN ... THEN ... 表达式片段。
+func (t *SharkTable) When(args ...any) string {
+	return sharksql.When(args...)
+}
+
+// WhenAs 构建 WHEN ... THEN ... 表达式片段并指定别名。
+func (t *SharkTable) WhenAs(alias string, args ...any) string {
+	return sharksql.WhenAs(alias, args...)
+}
+
 // ========== JSON 方法 ==========
 
 // JsonExtract 添加 JSON_EXTRACT 到 SELECT。
