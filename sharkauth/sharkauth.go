@@ -495,7 +495,7 @@ func PruneUnauthorizedAuthTree(parent, child []*AuthNode) []*AuthNode {
 //	//   Auth=1 → checkbox checked
 //	//   Auth=2 → checkbox unchecked
 //	//   Auth=0 → 不显示 checkbox（中间层折叠节点）
-func SyncAuthTree(parent, child []*AuthNode) []*AuthNode {
+func SyncAuthTree(parent, child []*AuthNode) {
 	// find 在权限树中按路径查找节点（与 PruneUnauthorizedAuthTree 中的 find 逻辑一致）
 	var find func(nodes []*AuthNode, names []string) *AuthNode
 	find = func(nodes []*AuthNode, names []string) *AuthNode {
@@ -535,7 +535,6 @@ func SyncAuthTree(parent, child []*AuthNode) []*AuthNode {
 		}
 	}
 	dfs(parent, []string{})
-	return parent
 }
 
 // Permissions 将权限树转换为 URL → 权限路径列表 的映射表。
@@ -691,8 +690,8 @@ func Permissions(nodes []*AuthNode) map[string][]string {
 //	// if (userPerms["系统管理.用户管理.用户列表"]) {
 //	//     showUserListButton();
 //	// }
-func Flatten(nodes []*AuthNode) map[string]any {
-	res := make(map[string]any)
+func Flatten(nodes []*AuthNode) map[string]int {
+	res := make(map[string]int)
 	// dfs 遍历权限树，仅收集 Auth=1 的节点路径
 	var dfs func(node *AuthNode, path string)
 	dfs = func(node *AuthNode, path string) {

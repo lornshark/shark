@@ -15,6 +15,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
@@ -28,6 +29,7 @@ import (
 // Config 是 MySQL 数据库的连接配置。
 //
 // 支持从 JSON、YAML、viper（mapstructure）等多种配置源加载。
+// 连接池参数为零值时使用默认值（向后兼容）。
 type Config struct {
 	// Host 数据库连接地址，格式为 "host:port"，如 "127.0.0.1:3306"
 	Host string `json:"host" yaml:"host" mapstructure:"host"`
@@ -40,6 +42,14 @@ type Config struct {
 	// Tls TLS 配置名称，非空时启用 TLS 加密连接
 	// 默认为空字符串表示不使用 TLS，设置为 "tidb" 或其他值会注册对应的 TLS 配置
 	Tls string `json:"tls" yaml:"tls" mapstructure:"tls"`
+	// MaxIdleConns 最大空闲连接数，0 使用默认值 20
+	MaxIdleConns int `json:"max_idle_conns" yaml:"max_idle_conns" mapstructure:"max_idle_conns"`
+	// MaxOpenConns 最大打开连接数，0 使用默认值 100
+	MaxOpenConns int `json:"max_open_conns" yaml:"max_open_conns" mapstructure:"max_open_conns"`
+	// ConnMaxIdleMinute 空闲连接最大存活分钟数，0 使用默认值 5
+	ConnMaxIdleMinute int `json:"conn_max_idle_minute" yaml:"conn_max_idle_minute" mapstructure:"conn_max_idle_minute"`
+	// ConnMaxLifetimeMinute 连接最大存活分钟数，0 使用默认值 60
+	ConnMaxLifetimeMinute int `json:"conn_max_lifetime_minute" yaml:"conn_max_lifetime_minute" mapstructure:"conn_max_lifetime_minute"`
 }
 
 // NewDb 创建并配置一个 GORM 数据库连接。
@@ -90,23 +100,36 @@ func NewDb(ctx context.Context, logger *zap.Logger, config *Config) (*gorm.DB, e
 		return nil, fmt.Errorf("config required")
 	}
 
-	// 构建 MySQL DSN（Data Source Name）
-	// 格式：user:password@tcp(host)/database?charset=utf8mb4&parseTime=True&loc=Local
-	dsn := "%v:%v@tcp(%v)/%v?charset=utf8mb4&parseTime=True&loc=Local"
-	dsn = fmt.Sprintf(dsn, config.User, config.Password, config.Host, config.Database)
+	// 构建 MySQL DSN（使用 driver 的 Config 安全构造，避免 fmt.Sprintf 注入）
+	cfg := mysqldriver.NewConfig()
+	cfg.User = config.User
+	cfg.Passwd = config.Password
+	cfg.Net = "tcp"
+	cfg.Addr = config.Host
+	cfg.DBName = config.Database
+	cfg.Params = map[string]string{
+		"charset":   "utf8mb4",
+		"parseTime": "True",
+		"loc":       "Local",
+	}
 
-	// 如果配置了 TLS，注册 TLS 配置并附加到 DSN
+	// 如果配置了 TLS，注册 TLS 配置
 	if config.Tls != "" {
-		dsn += "&tls=tidb"
+		cfg.Params["tls"] = "tidb"
+		// 提取主机名（去掉端口号），TLS ServerName 应为纯域名/IP
+		serverName := config.Host
+		if host, _, err := net.SplitHostPort(config.Host); err == nil {
+			serverName = host
+		}
 		// 注册名为 "tidb" 的 TLS 配置，最低要求 TLS 1.2
 		mysqldriver.RegisterTLSConfig("tidb", &tls.Config{
 			MinVersion: tls.VersionTLS12,
-			ServerName: config.Host,
+			ServerName: serverName,
 		})
 	}
 
 	// 使用 GORM 打开数据库连接
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
+	db, err := gorm.Open(mysql.Open(cfg.FormatDSN()), &gorm.Config{
 		SkipDefaultTransaction:                   true,                 // 跳过默认事务
 		PrepareStmt:                              true,                 // 启用预编译语句缓存
 		CreateBatchSize:                          1000,                 // 批量创建每批 1000 条
@@ -122,10 +145,27 @@ func NewDb(ctx context.Context, logger *zap.Logger, config *Config) (*gorm.DB, e
 	if err != nil {
 		return nil, fmt.Errorf("get sql.DB failed: %w", err)
 	}
-	gdb.SetConnMaxIdleTime(5 * time.Minute) // 空闲连接 5 分钟后关闭
-	gdb.SetConnMaxLifetime(1 * time.Hour)   // 连接最长存活 1 小时
-	gdb.SetMaxIdleConns(20)                 // 最多保持 20 个空闲连接
-	gdb.SetMaxOpenConns(100)                // 最多打开 100 个连接
+	// 连接池配置：优先使用自定义值，零值回退到默认值
+	maxIdleTime := 5 * time.Minute
+	if config.ConnMaxIdleMinute > 0 {
+		maxIdleTime = time.Duration(config.ConnMaxIdleMinute) * time.Minute
+	}
+	maxLifetime := 1 * time.Hour
+	if config.ConnMaxLifetimeMinute > 0 {
+		maxLifetime = time.Duration(config.ConnMaxLifetimeMinute) * time.Minute
+	}
+	maxIdleConns := 20
+	if config.MaxIdleConns > 0 {
+		maxIdleConns = config.MaxIdleConns
+	}
+	maxOpenConns := 100
+	if config.MaxOpenConns > 0 {
+		maxOpenConns = config.MaxOpenConns
+	}
+	gdb.SetConnMaxIdleTime(maxIdleTime)
+	gdb.SetConnMaxLifetime(maxLifetime)
+	gdb.SetMaxIdleConns(maxIdleConns)
+	gdb.SetMaxOpenConns(maxOpenConns)
 
 	// Ping 验证连接是否可用
 	if err := gdb.Ping(); err != nil {

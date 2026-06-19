@@ -1,9 +1,7 @@
 package sharkhttp
 
 import (
-	"bytes"
 	"errors"
-	"io"
 	"net/http"
 	"runtime/debug"
 
@@ -14,10 +12,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// wsUpgrader 是 WebSocket 连接升级器，用于将 HTTP 连接升级为 WebSocket。
+// WsUpgrader 是 WebSocket 连接升级器，用于将 HTTP 连接升级为 WebSocket。
 // CheckOrigin 返回 true 表示允许所有来源的 WebSocket 连接。
 // 如果需要限制来源，可以修改 CheckOrigin 的实现。
-var wsUpgrader = websocket.Upgrader{
+var WsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
@@ -25,7 +23,7 @@ var wsUpgrader = websocket.Upgrader{
 	},
 }
 
-// corsMiddleare 是 CORS（跨域资源共享）中间件。
+// corsMiddleware 是 CORS（跨域资源共享）中间件。
 //
 // 允许的配置:
 //   - Origin: *（所有域名）
@@ -88,12 +86,10 @@ func recoveryMiddleware(logger *zap.Logger) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		reqPath := ctx.Request.URL.Path
 
-		// 读取请求体原始数据（用于日志记录），并重新放回 Body
-		reqData, _ := ctx.GetRawData()
-		ctx.Request.Body = io.NopCloser(bytes.NewBuffer(reqData))
-
 		defer func() {
 			if r := recover(); r != nil {
+				// 仅在 panic 时读取请求体（避免正常请求的额外开销）
+				reqData, _ := ctx.GetRawData()
 				// 记录详细的 panic 信息
 				if logger != nil {
 					logger.Error("panic",

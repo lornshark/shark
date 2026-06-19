@@ -157,15 +157,15 @@ func TestSyncAuthTree(t *testing.T) {
 		},
 	}
 
-	editTree := sharkauth.SyncAuthTree(parent, child)
-	if editTree[0].Children[0].Auth != 1 {
-		t.Errorf("用户列表 Auth = %d, want 1 (已有权限)", editTree[0].Children[0].Auth)
+	sharkauth.SyncAuthTree(parent, child)
+	if parent[0].Children[0].Auth != 1 {
+		t.Errorf("用户列表 Auth = %d, want 1 (已有权限)", parent[0].Children[0].Auth)
 	}
-	if editTree[0].Children[1].Auth != 2 {
-		t.Errorf("用户详情 Auth = %d, want 2 (无权限)", editTree[0].Children[1].Auth)
+	if parent[0].Children[1].Auth != 2 {
+		t.Errorf("用户详情 Auth = %d, want 2 (无权限)", parent[0].Children[1].Auth)
 	}
-	if editTree[0].Children[2].Auth != 2 {
-		t.Errorf("角色列表 Auth = %d, want 2 (无权限)", editTree[0].Children[2].Auth)
+	if parent[0].Children[2].Auth != 2 {
+		t.Errorf("角色列表 Auth = %d, want 2 (无权限)", parent[0].Children[2].Auth)
 	}
 }
 

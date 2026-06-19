@@ -207,7 +207,10 @@ func New(options *Options) (*App, error) {
 			app.RedisCluster = cluster
 			app.Logger.Info("连接redis cluster成功", zap.Strings("host", options.redis.Host))
 		} else {
-			if strings.Contains(err.Error(), "cluster support disabled") {
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "cluster support disabled") ||
+				strings.Contains(errMsg, "CLUSTERDOWN") ||
+				strings.Contains(errMsg, "ERR This instance has cluster support disabled") {
 				// 不是集群模式，回退到单机/主从模式
 				client, err := sharkredis.NewClient(app.Context, options.redis)
 				if err != nil {
@@ -452,9 +455,6 @@ type AppComponent interface {
 // 参数:
 //   - components: 需要在启动时初始化的应用组件列表
 func (a *App) Hunt(components ...AppComponent) {
-	// 短暂等待，确保所有 goroutine 已就绪
-	time.Sleep(time.Millisecond * 100)
-
 	// 依次启动所有组件
 	for _, c := range components {
 		c.Start()
@@ -475,6 +475,8 @@ func (a *App) Hunt(components ...AppComponent) {
 	time.Sleep(time.Millisecond * 500)
 	// 等待所有注册的 goroutine 完成
 	a.Wg.Wait()
+	// 优雅关闭日志组件（Kafka Writer）
+	a.sharklog.Close()
 	a.Logger.Debug("****************server exit****************")
 }
 

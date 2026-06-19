@@ -44,7 +44,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/lornshark/shark/sharksnowflake"
@@ -172,6 +171,15 @@ func (s *SharkLog) SetKafkaWriter(writer *kafka.Writer) {
 	s.writer.writer = writer
 }
 
+// Close 优雅关闭日志组件，关闭 Kafka Writer 连接。
+//
+// 应在应用退出前调用，确保最后一条日志成功推送到 Kafka。
+func (s *SharkLog) Close() {
+	if s.writer != nil && s.writer.writer != nil {
+		s.writer.writer.Close()
+	}
+}
+
 // logWriter 实现 zapcore.WriteSyncer 接口，将日志写入 Kafka。
 //
 // 每条日志被包装为结构化的 JSON 消息，包含：
@@ -218,20 +226,13 @@ func (w *logWriter) Write(p []byte) (n int, err error) {
 		}
 		// 使用 sonic 进行高性能 JSON 序列化
 		b, _ := sonic.Marshal(data)
-		// 写入 Kafka（使用 context.Background() 避免上层 ctx 取消影响日志推送）
-		err := w.writer.WriteMessages(context.Background(), kafka.Message{Value: b})
+		// 写入 Kafka（5 秒超时，避免 Kafka 不可用时阻塞日志）
+		writeCtx, cancel := context.WithTimeout(w.ctx, 5*time.Second)
+		err := w.writer.WriteMessages(writeCtx, kafka.Message{Value: b})
+		cancel()
 		if err != nil {
 			// Kafka 写入失败：降级输出到控制台，不阻塞业务日志
 			fmt.Println("日志写入Kafka失败", err, "日志内容", string(p))
-		}
-		// 优雅退出检测：ctx 取消 + 日志包含退出标记 → 关闭 Kafka Writer
-		select {
-		case <-w.ctx.Done():
-			s := string(p)
-			if strings.Contains(s, "****************server exit****************") {
-				w.writer.Close()
-			}
-		default:
 		}
 	}
 	// 始终返回成功（len(p), nil），保证 zap 日志流程不被中断

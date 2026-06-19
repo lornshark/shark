@@ -5,7 +5,7 @@
 //
 // 内置中间件:
 //   - recoveryMiddleware: panic 恢复中间件，防止服务崩溃
-//   - corsMiddleare: CORS 跨域中间件，允许跨域请求
+//   - corsMiddleware: CORS 跨域中间件，允许跨域请求
 //   - errorMiddleware: 统一错误处理中间件，将 Gin 错误转为 sharkerror 格式
 //
 // 开发环境额外启用 Swagger 文档服务。
@@ -70,6 +70,10 @@ func New(ctx context.Context, evn string, logger *zap.Logger, port int) *gin.Eng
 	}
 
 	// 异步启动 HTTP 服务（不阻塞当前 goroutine）
-	go router.Run(":" + fmt.Sprint(port))
+	go func() {
+		if err := router.Run(":" + fmt.Sprint(port)); err != nil {
+			logger.Error("http服务启动失败", zap.Error(err), zap.Int("port", port))
+		}
+	}()
 	return router
 }

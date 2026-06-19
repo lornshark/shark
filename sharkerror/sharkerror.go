@@ -115,6 +115,31 @@ func (e *Error) WithErr(err error) *Error {
 	}
 }
 
+// WithErrWrap 创建新的 Error 实例，保留原始错误类型用于 errors.Is/As 穿透。
+//
+// 与 WithErr 的区别：WithErrWrap 将原始 error 作为 Data 存储，
+// 上游可通过 errors.Is/As 继续判断底层错误类型。
+//
+// 参数:
+//   - err: 原始错误，完整的 error 实例存入 Data（JSON 序列化时自动调用 Error()）
+//
+// 返回:
+//   - Data 为原始 error 的错误副本，errors.Is/As 可穿透
+//
+// 示例:
+//
+//	dbErr := &mysql.MySQLError{Number: 1062, Message: "Duplicate entry"}
+//	bizErr := ErrDBError.WithErrWrap(dbErr)
+//	// errors.Is(bizErr, ErrDBError) → true
+//	// var mysqlErr *mysql.MySQLError; errors.As(bizErr, &mysqlErr) → true
+func (e *Error) WithErrWrap(err error) *Error {
+	return &Error{
+		Code: e.Code,
+		Msg:  e.Msg,
+		Data: err,
+	}
+}
+
 // WithMsg 创建新的 Error 实例并替换消息内容。
 //
 // 用于在保留错误码和附加数据的同时，自定义错误消息。

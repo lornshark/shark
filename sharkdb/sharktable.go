@@ -55,14 +55,20 @@ func (t *SharkTable) isEmpty(v any) bool {
 		return true
 	}
 	rv := reflect.ValueOf(v)
-	switch rv.Kind() {
-	case reflect.Ptr, reflect.Interface:
-		if rv.IsNil() {
-			return true
+	// 限制最大解引用深度，防止多级指针无限递归
+	const maxDepth = 4
+	for depth := 0; depth < maxDepth; depth++ {
+		switch rv.Kind() {
+		case reflect.Ptr, reflect.Interface:
+			if rv.IsNil() {
+				return true
+			}
+			rv = rv.Elem()
+		case reflect.Slice, reflect.Map:
+			return rv.Len() == 0
+		default:
+			return false
 		}
-		return t.isEmpty(rv.Elem().Interface())
-	case reflect.Slice, reflect.Map:
-		return rv.Len() == 0
 	}
 	return false
 }

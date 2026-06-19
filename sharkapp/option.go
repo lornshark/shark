@@ -363,10 +363,12 @@ func (o *Options) parseRedisCluster(v *viper.Viper) {
 		return
 	}
 	o.redis_cluster = &sharkredis.Config{
-		Host:        hosts,
-		Password:    strings.TrimSpace(v.GetString("redis_cluster.password")),
-		ReplaceFrom: strings.TrimSpace(v.GetString("redis_cluster.replace_from")),
-		ReplaceTo:   strings.TrimSpace(v.GetString("redis_cluster.replace_to")),
+		Host:         hosts,
+		Password:     strings.TrimSpace(v.GetString("redis_cluster.password")),
+		ReplaceFrom:  strings.TrimSpace(v.GetString("redis_cluster.replace_from")),
+		ReplaceTo:    strings.TrimSpace(v.GetString("redis_cluster.replace_to")),
+		PoolSize:     v.GetInt("redis_cluster.pool_size"),
+		MinIdleConns: v.GetInt("redis_cluster.min_idle_conns"),
 	}
 }
 
@@ -377,10 +379,12 @@ func (o *Options) parseRedisClient(v *viper.Viper) {
 		return
 	}
 	o.redis_client = &sharkredis.Config{
-		Host:        hosts,
-		Password:    strings.TrimSpace(v.GetString("redis_client.password")),
-		ReplaceFrom: strings.TrimSpace(v.GetString("redis_client.replace_from")),
-		ReplaceTo:   strings.TrimSpace(v.GetString("redis_client.replace_to")),
+		Host:         hosts,
+		Password:     strings.TrimSpace(v.GetString("redis_client.password")),
+		ReplaceFrom:  strings.TrimSpace(v.GetString("redis_client.replace_from")),
+		ReplaceTo:    strings.TrimSpace(v.GetString("redis_client.replace_to")),
+		PoolSize:     v.GetInt("redis_client.pool_size"),
+		MinIdleConns: v.GetInt("redis_client.min_idle_conns"),
 	}
 }
 
@@ -391,10 +395,12 @@ func (o *Options) parseRedis(v *viper.Viper) {
 		return
 	}
 	o.redis = &sharkredis.Config{
-		Host:        hosts,
-		Password:    strings.TrimSpace(v.GetString("redis.password")),
-		ReplaceFrom: strings.TrimSpace(v.GetString("redis.replace_from")),
-		ReplaceTo:   strings.TrimSpace(v.GetString("redis.replace_to")),
+		Host:         hosts,
+		Password:     strings.TrimSpace(v.GetString("redis.password")),
+		ReplaceFrom:  strings.TrimSpace(v.GetString("redis.replace_from")),
+		ReplaceTo:    strings.TrimSpace(v.GetString("redis.replace_to")),
+		PoolSize:     v.GetInt("redis.pool_size"),
+		MinIdleConns: v.GetInt("redis.min_idle_conns"),
 	}
 }
 
@@ -405,10 +411,14 @@ func (o *Options) parseDB(v *viper.Viper) {
 		return
 	}
 	o.db = &sharkdb.Config{
-		Host:     hosts[0],
-		User:     strings.TrimSpace(v.GetString("db.user")),
-		Password: strings.TrimSpace(v.GetString("db.password")),
-		Database: strings.TrimSpace(v.GetString("db.database")),
+		Host:                  hosts[0],
+		User:                  strings.TrimSpace(v.GetString("db.user")),
+		Password:              strings.TrimSpace(v.GetString("db.password")),
+		Database:              strings.TrimSpace(v.GetString("db.database")),
+		MaxIdleConns:          v.GetInt("db.max_idle_conns"),
+		MaxOpenConns:          v.GetInt("db.max_open_conns"),
+		ConnMaxIdleMinute:     v.GetInt("db.conn_max_idle_minute"),
+		ConnMaxLifetimeMinute: v.GetInt("db.conn_max_lifetime_minute"),
 	}
 }
 
