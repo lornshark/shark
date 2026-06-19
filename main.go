@@ -22,7 +22,10 @@ import (
 // swag init --parseDependency -g  main.go
 
 func main() {
-	options := sharkapp.NewOption("kgame", "game-test")
+	options, err := sharkapp.NewOption("kgame", "game-test")
+	if err != nil {
+		panic(err)
+	}
 	app, err := sharkapp.New(options)
 	if err != nil {
 		panic(err)

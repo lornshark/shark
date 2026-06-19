@@ -118,7 +118,10 @@ func NewDb(ctx context.Context, logger *zap.Logger, config *Config) (*gorm.DB, e
 	}
 
 	// 获取底层 *sql.DB 实例以配置连接池
-	gdb, _ := db.DB()
+	gdb, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("get sql.DB failed: %w", err)
+	}
 	gdb.SetConnMaxIdleTime(5 * time.Minute) // 空闲连接 5 分钟后关闭
 	gdb.SetConnMaxLifetime(1 * time.Hour)   // 连接最长存活 1 小时
 	gdb.SetMaxIdleConns(20)                 // 最多保持 20 个空闲连接

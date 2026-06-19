@@ -43,7 +43,7 @@ var wsUpgrader = websocket.Upgrader{
 //
 // 返回:
 //   - gin.HandlerFunc: CORS 中间件处理函数
-func corsMiddleare() gin.HandlerFunc {
+func corsMiddleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		method := ctx.Request.Method
 

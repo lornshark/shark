@@ -60,7 +60,7 @@ func New(ctx context.Context, evn string, logger *zap.Logger, port int) *gin.Eng
 
 	// 注册内置中间件（按顺序执行）
 	router.Use(recoveryMiddleware(logger)) // 1. panic 恢复
-	router.Use(corsMiddleare())            // 2. CORS 跨域
+	router.Use(corsMiddleware())           // 2. CORS 跨域
 	router.Use(errorMiddleware())          // 3. 统一错误处理
 
 	// 开发环境注册 Swagger 文档路由

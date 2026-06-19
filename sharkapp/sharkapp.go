@@ -8,13 +8,13 @@
 // 典型用法:
 //
 //	// 方式一：从 YAML 配置文件加载
-//	options := sharkapp.NewOption("myproject", "myapp")
+//	options, _ := sharkapp.NewOption("myproject", "myapp")
 //	app, _ := sharkapp.New(options)
 //	app.Hunt()
 //
 //	// 方式二：在代码中指定配置
-//	options := sharkapp.NewOption("myproject", "myapp")
-//	options.WithDb(&sharkdb.Config{...}).WithRedis(&sharkredis.Config{...})
+//	options, _ := sharkapp.NewOption("myproject", "myapp")
+//	options.WithDB(&sharkdb.Config{...}).WithRedis(&sharkredis.Config{...})
 //	app, _ := sharkapp.New(options)
 //	app.Hunt()
 package sharkapp
@@ -155,6 +155,10 @@ type App struct {
 //   - *App: 初始化完成的应用实例
 //   - error: 任一中件间连接失败时返回错误
 func New(options *Options) (*App, error) {
+	if options == nil {
+		return nil, fmt.Errorf("options required")
+	}
+
 	// 创建带取消功能的 context，用于全局生命周期控制
 	ctx, cancel := context.WithCancel(context.Background())
 	app := &App{
@@ -179,16 +183,19 @@ func New(options *Options) (*App, error) {
 			return nil, err
 		}
 		app.Kafka = kafka
+		app.Logger.Info("连接kafka成功", zap.Strings("host", options.kafka.Host))
+
 		// dev/test 环境自动将日志写入 Kafka，方便开发调试
 		// 生产环境由运维统一收集日志，不需要应用层自行写入
 		if app.Env == "dev" || app.Env == "test" {
 			topic := fmt.Sprintf("%v_game_log", app.Project)
-			kafkaLogWriter, _ := app.Kafka.Writer(topic)
-			app.sharklog.SetKafkaWriter(kafkaLogWriter)
+			kafkaLogWriter, err := app.Kafka.Writer(topic)
+			if err != nil {
+				app.Logger.Warn("创建Kafka日志Writer失败，日志仅输出到控制台", zap.Error(err))
+			} else {
+				app.sharklog.SetKafkaWriter(kafkaLogWriter)
+			}
 		}
-	}
-	if options.kafka != nil {
-		app.Logger.Info("连接kafka成功", zap.Strings("host", options.kafka.Host))
 	}
 
 	// ---- Redis 初始化（自动探测 cluster/client 模式） ----
@@ -271,9 +278,10 @@ func New(options *Options) (*App, error) {
 			return nil, err
 		}
 		// CRC16 哈希取模选择 broker 节点
-		index := crc16.Checksum([]byte(app.Name), crc16.IBMTable)
-		index = index % uint16(len(options.rabbitmq.Host))
-		app.Logger.Info("连接rabbitmq成功", zap.String("host", options.rabbitmq.Host[index]))
+		if len(options.rabbitmq.Host) > 0 {
+			index := crc16.Checksum([]byte(app.Name), crc16.IBMTable) % uint16(len(options.rabbitmq.Host))
+			app.Logger.Info("连接rabbitmq成功", zap.String("host", options.rabbitmq.Host[index]))
+		}
 		app.Rabbitmq = mq
 	}
 
@@ -410,8 +418,8 @@ func (a *App) pprof(port int) {
 //   - port: 监听端口
 func (a *App) health_service(port int) {
 	http.HandleFunc("/health", func(writer http.ResponseWriter, request *http.Request) {
-		writer.WriteHeader(200)
 		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(200)
 		writer.Write([]byte(`{"status": "ok"}`))
 	})
 	a.Logger.Info("开启健康检查服务", zap.Int("port", port))
@@ -457,8 +465,7 @@ func (a *App) Hunt(components ...AppComponent) {
 
 	// 监听系统信号（SIGTERM 来自 kill 命令，SIGINT 来自 Ctrl+C）
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGTERM)
-	signal.Notify(sig, syscall.SIGINT)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 	// 阻塞等待信号
 	<-sig
 
