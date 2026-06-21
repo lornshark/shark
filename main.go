@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/lornshark/shark/sharkapp"
 )
 
@@ -38,33 +36,5 @@ type Test struct {
 }
 
 func (t *Test) Start() {
-	// tb := "x_user"
-	// db := t.svc.Db.Table(tb).Select(
-	// 	Column(tb, "id"),
-	// 	Column(tb, "name"),
-	// 	ColumnAs(tb, "age", "user_age"),
-	// ).Joins("")
-	// stmt := db.Session(&gorm.Session{DryRun: true}).Find(nil).Statement
-	// fmt.Println("====:", stmt.SQL.String())
 
-}
-
-func Column(table string, column string) string {
-	return fmt.Sprintf("%v.%v", table, column)
-}
-
-func ColumnAs(table string, column string, as string) string {
-	return fmt.Sprintf("%v.%v as %v", table, column, as)
-}
-
-type MyJoin struct {
-	table string
-}
-
-func LeftJoin(table string) *MyJoin {
-	return &MyJoin{table: table}
-}
-
-func (j *MyJoin) OnEq(l string, r string) string {
-	return fmt.Sprintf("%v = %v", l, r)
 }

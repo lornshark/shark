@@ -10,6 +10,7 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/elastic/go-elasticsearch/v9"
 	"github.com/elastic/go-elasticsearch/v9/esapi"
+	"github.com/lornshark/shark/sharkeswhere"
 	"github.com/tidwall/gjson"
 )
 
@@ -333,6 +334,214 @@ func (s *SharkElastic) Insert(ctx context.Context, index string, idField string,
 			}
 		}
 		return fmt.Errorf("Bulk 操作部分失败:\n%s", strings.Join(errMsgs, "\n"))
+	}
+
+	return nil
+}
+
+// SqlRaw 执行 SQL 风格查询并返回原始 ES 响应 JSON 字节。
+//
+// 设计目的
+//
+// SqlRaw 面向需要直接处理 ES 原始响应的场景（如手动解析 hits 元数据、调试 SQL 翻译结果等）。
+// 它返回 ES Search API 的完整 JSON 响应，调用方可自行提取 hits.hits、hits.total 等字段。
+//
+// 与 Find 的边界
+//
+//   - SqlRaw → 返回原始 ES JSON 字节，灵活但需手动解析。适合需要 total、_score 等元信息、
+//     或自定义反序列化逻辑的场景。
+//   - Find   → 自动提取 _source 并反序列化到切片。仅需文档列表时更便捷（类似 GORM Find）。
+//
+// SQL 完整格式：
+//
+//	[select field,...] from indexname where conditions [order by field [asc|desc], ...] [limit N] [offset N]
+//
+// 各子句映射：
+//
+//	select name,age   → ES _source 字段过滤（仅返回指定字段）
+//	from indexname    → 目标索引（必填，无默认值）
+//	where conditions  → 过滤条件，仅支持以下运算符和逻辑组合
+//	order by field... → ES sort
+//	limit N           → ES size，返回文档数上限
+//	offset N          → ES from，分页偏移量（必须在 limit 之后）
+//
+// where 条件支持的运算符：
+//
+//	=      → term         精确匹配
+//	!=     → bool.must_not
+//	>      → range gt      大于
+//	>=     → range gte     大于等于
+//	<      → range lt      小于
+//	<=     → range lte     小于等于
+//	in     → terms         多值匹配
+//	like   → match         全文搜索（⚠️ 非 SQL LIKE 通配符，是 ES match 查询）
+//	and    → bool.must     逻辑与（AND 优先级高于 OR）
+//	or     → bool.should   逻辑或
+//	()     → 分组，改变优先级
+//
+// order by 排序：
+//
+//	order by field1 [asc|desc], field2 [asc|desc], ...
+//	默认排序方向为 asc，多字段用逗号分隔
+//	位于 limit/offset 之前：where ... order by age desc limit 10
+//
+// 不支持的功能及其原因：
+//
+//   - 聚合（aggregations）、分组（group by）
+//     → 聚合返回聚合桶而非文档列表，与当前文档查询模型完全不同
+//   - select 别名（如 select name as n）
+//     → ES _source 不支持字段重命名，需 script_fields 替代，但返回结构从 _source 变为 fields，
+//     且 Find() 的"反序列化到结构体"流程会完全失效
+//   - select DISTINCT
+//     → ES 无原生 distinct 查询，需 collapse（折叠）或 terms aggregation，
+//     本质是聚合去重，不再是文档查询语义
+//   - select 表达式（如 select age+1, price*0.9）
+//     → ES 需 script_fields + Painless 脚本，返回 fields 数组而非 _source，
+//     且引入脚本注入风险和性能开销
+//   - SQL 通配符 LIKE（%）、BETWEEN、IS NULL
+//     → 当前 like 映射为 ES match（全文搜索），非通配符匹配
+//   - 算术表达式、函数调用、子查询、JOIN
+//     → ES 不支持 SQL 级别的关系运算和嵌套查询
+//
+// 注意：
+//   - 字符串值需用引号包裹：name = '张三' 或 name = "张三"
+//   - IN 值列表用括号：status in (1, 2, 3)
+//   - like 映射为 ES Match Query（全文搜索语义），不是 SQL 的通配符匹配
+//
+// 使用示例：
+//
+//	// 简单条件查询
+//	resp, err := es.SqlRaw(ctx, "from users where status = 1")
+//
+//	// 多条件 + 范围 + 分页
+//	resp, err := es.SqlRaw(ctx, "from users where status = 1 and age >= 18 limit 10")
+//
+//	// 字段过滤 + OR 分组
+//	resp, err := es.SqlRaw(ctx, "select name,age from users where (city = '北京' or city = '上海') and status = 1")
+//
+//	// 排序 + 分页
+//	resp, err := es.SqlRaw(ctx, "from users where status = 1 order by age desc limit 10 offset 5")
+//
+// 参数：
+//   - ctx: 上下文
+//   - sql: SQL 风格查询字符串，必须包含 from 子句
+//
+// 返回：
+//   - []byte: ES 搜索原始响应 JSON
+//   - error:  解析失败、缺少 from 子句或 ES 请求失败时返回错误
+func (s *SharkElastic) SqlRaw(ctx context.Context, sql string) ([]byte, error) {
+	pq, err := sharkeswhere.Build(sql)
+	if err != nil {
+		return nil, err
+	}
+	if pq.Index == "" {
+		return nil, fmt.Errorf("SQL 缺少 from 子句指定索引")
+	}
+	return s.Search(ctx, pq.Index, pq.Body)
+}
+
+// Find 执行 SQL 风格查询，自动提取 _source 并反序列化到目标切片。
+//
+// 设计目的
+//
+// Find 面向简单的文档列表查询场景，提供类似 GORM Find 的开发体验。
+// 内部自动完成：SQL 解析 → ES 搜索 → 提取 hits.hits._source 数组 → JSON 反序列化到 result。
+// 不返回 total、_score 等元数据，仅返回文档内容列表。
+//
+// 与 SqlRaw 的边界
+//
+//   - Find   → 仅返回文档 _source 切片，适合"查列表"场景。result 必须是非 nil 切片指针。
+//   - SqlRaw → 返回完整 ES 响应（含 hits.total、_score、shards 等），适合需要元数据的场景。
+//
+// SQL 格式：
+//
+//	[select field,...] from indexname where conditions [order by field [asc|desc], ...] [limit N] [offset N]
+//
+// 支持的运算符：= != > >= < <= in like and or ()、order by、limit、offset
+//
+// 不支持的功能及其原因：
+//
+//   - 聚合（aggregations）、分组（group by）
+//     → 聚合返回聚合桶而非文档列表，与当前文档查询模型完全不同
+//   - select 别名（如 select name as n）
+//     → ES _source 不支持字段重命名，需 script_fields 替代，但返回结构从 _source 变为 fields，
+//     且 Find() 的"反序列化到结构体"流程会完全失效
+//   - select DISTINCT
+//     → ES 无原生 distinct 查询，需 collapse（折叠）或 terms aggregation，
+//     本质是聚合去重，不再是文档查询语义
+//   - select 表达式（如 select age+1, price*0.9）
+//     → ES 需 script_fields + Painless 脚本，返回 fields 数组而非 _source，
+//     且引入脚本注入风险和性能开销
+//   - SQL 通配符 LIKE（%）、BETWEEN、IS NULL
+//     → 当前 like 映射为 ES match（全文搜索），非通配符匹配
+//   - 算术表达式、函数调用、子查询、JOIN
+//     → ES 不支持 SQL 级别的关系运算和嵌套查询
+//
+// 注意事项
+//
+//   - result 必须是指向切片的指针（如 &[]User{}），否则反序列化失败
+//   - result 对应的结构体字段需要使用 json tag 匹配 ES 文档字段名
+//   - 查询无结果时，result 指向的空切片长度为 0，不返回错误
+//   - from 子句为必填，缺少时返回错误
+//   - like 映射为 ES Match Query（全文搜索），不是 SQL 通配符
+//
+// 使用示例：
+//
+//	type User struct {
+//	    UserID string `json:"user_id"`
+//	    Name   string `json:"name"`
+//	    Age    int    `json:"age"`
+//	}
+//
+//	// 条件查询
+//	var users []User
+//	err := es.Find(ctx, "from users where status = 1", &users)
+//
+//	// 字段过滤 + 分页
+//	err = es.Find(ctx, "select name,age from users where age >= 18 limit 10 offset 5", &users)
+//
+//	// 无结果（users 为空切片，err 为 nil）
+//	err = es.Find(ctx, "from users where age > 200", &users)
+//
+// 参数：
+//   - ctx:    上下文
+//   - sql:    SQL 风格查询字符串，必须包含 from 子句
+//   - result: 指向切片的指针（如 &[]User{}），不能为 nil
+//
+// 返回：
+//   - error: 解析失败、缺少 from 子句、ES 请求失败或反序列化失败时返回错误
+func (s *SharkElastic) Find(ctx context.Context, sql string, result any) error {
+	if strings.TrimSpace(sql) == "" {
+		return fmt.Errorf("SQL 不能为空")
+	}
+	if result == nil {
+		return fmt.Errorf("result 不能为 nil")
+	}
+
+	// 1. 构建查询 DSL
+	pq, err := sharkeswhere.Build(sql)
+	if err != nil {
+		return fmt.Errorf("构建查询失败: %w", err)
+	}
+	if pq.Index == "" {
+		return fmt.Errorf("SQL 缺少 from 子句指定索引")
+	}
+
+	// 2. 执行搜索
+	respBytes, err := s.Search(ctx, pq.Index, pq.Body)
+	if err != nil {
+		return err
+	}
+
+	// 3. 解析 ES 响应：提取 hits.hits[]._source 数组
+	sourcesJSON := gjson.GetBytes(respBytes, "hits.hits.#._source")
+	if !sourcesJSON.Exists() {
+		return fmt.Errorf("解析 ES 响应失败: 未找到 hits.hits")
+	}
+
+	// 将 JSON 数组反序列化到 result
+	if err := sonic.Unmarshal([]byte(sourcesJSON.Raw), result); err != nil {
+		return fmt.Errorf("反序列化结果失败: %w", err)
 	}
 
 	return nil
