@@ -475,9 +475,9 @@ func (a *App) Hunt(components ...AppComponent) {
 	time.Sleep(time.Millisecond * 500)
 	// 等待所有注册的 goroutine 完成
 	a.Wg.Wait()
+	a.Logger.Debug("****************server exit****************")
 	// 优雅关闭日志组件（Kafka Writer）
 	a.sharklog.Close()
-	a.Logger.Debug("****************server exit****************")
 }
 
 // banner 打印服务启动日志。

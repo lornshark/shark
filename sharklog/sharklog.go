@@ -177,6 +177,7 @@ func (s *SharkLog) SetKafkaWriter(writer *kafka.Writer) {
 func (s *SharkLog) Close() {
 	if s.writer != nil && s.writer.writer != nil {
 		s.writer.writer.Close()
+		s.writer.writer = nil // 避免重复关闭
 	}
 }
 
