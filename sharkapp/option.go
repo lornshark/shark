@@ -305,12 +305,6 @@ func (o *Options) decryptPassword(password string) string {
 	return string(plain)
 }
 
-// DecryptPassword 使用已设置的 RSA 私钥解密单个密码。
-// 解密失败时返回原值。
-func (o *Options) DecryptPassword(password string) string {
-	return o.decryptPassword(password)
-}
-
 // ========== 配置加载 ==========
 
 // readSlices 从 viper 中读取字符串切片配置。
