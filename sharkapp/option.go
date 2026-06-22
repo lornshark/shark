@@ -241,34 +241,6 @@ func (o *Options) WithID(id string) *Options {
 	return o
 }
 
-// WithCrypt 设置 RSA 私钥。
-//
-// 设置后，所有密码字段会尝试用该私钥解密：
-// Base64 解码 → PKCS#1 v1.5 解密。
-//
-// 解密失败（Base64 解码失败、RSA 解密失败）时保持原样。
-// 这意味着明文密码和密文密码可以共存，无需额外标识。
-//
-// 私钥格式：PEM 编码的 PKCS1 或 PKCS8 RSA 私钥。
-//
-// 典型用法：
-//
-//	opts, _ := sharkapp.NewOption("myproject", "game-server")
-//	opts.WithCrypt(os.Getenv("SHARK_PRIVATE_KEY"))
-func (o *Options) WithCrypt(key string) *Options {
-	if key == "" {
-		return o
-	}
-	key = strings.TrimSpace(key)
-	k, err := parseRSAPrivateKey(key)
-	if err != nil {
-		// 私钥无效时不 panic，保持 nil，解密时 fallback 到原值
-		return o
-	}
-	o.rsaPrivateKey = k
-	return o
-}
-
 // parseRSAPrivateKey 解析 PEM 格式的 RSA 私钥（支持 PKCS1 和 PKCS8）。
 func parseRSAPrivateKey(pemStr string) (*rsa.PrivateKey, error) {
 	block, _ := pem.Decode([]byte(pemStr))
@@ -330,7 +302,11 @@ func readSlices(v *viper.Viper, key string) []string {
 	return result
 }
 
-// NewOption 从本地 YAML 配置文件（config.yaml）中加载应用配置。
+func NewOption(project string, name string) (*Options, error) {
+	return NewOptionWithRsa(project, name, "")
+}
+
+// NewOptionWithRsa 从本地 YAML 配置文件（config.yaml）中加载应用配置。
 //
 // 配置加载流程:
 //  1. 创建 viper 实例，读取当前目录或 ./config 目录下的 config.yaml
@@ -350,7 +326,7 @@ func readSlices(v *viper.Viper, key string) []string {
 // 注意:
 //   - 如果 config.yaml 文件不存在，不会报错，所有中间件配置为空
 //   - 环境变量优先级高于配置文件
-func NewOption(project string, name string) (*Options, error) {
+func NewOptionWithRsa(project string, name string, rsa string) (*Options, error) {
 	if project == "" {
 		return nil, fmt.Errorf("project required")
 	}
@@ -384,6 +360,15 @@ func NewOption(project string, name string) (*Options, error) {
 		grpc:    v.GetInt("grpc"),
 		health:  v.GetInt("health"),
 		http:    v.GetInt("http"),
+	}
+
+	if rsa != "" {
+		key := strings.TrimSpace(rsa)
+		k, err := parseRSAPrivateKey(key)
+		if err != nil {
+			panic(fmt.Errorf("parse RSA private key failed: %w", err))
+		}
+		opts.rsaPrivateKey = k
 	}
 
 	// 校验端口范围
