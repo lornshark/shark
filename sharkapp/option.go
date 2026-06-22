@@ -1,7 +1,12 @@
 package sharkapp
 
 import (
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/lornshark/shark/sharkdb"
@@ -62,6 +67,7 @@ type Options struct {
 	risingwave    *sharkrisingwave.Config // RisingWave 配置
 	etcd          *sharketcd.Config       // etcd 配置
 	http          int                     // HTTP 端口
+	rsaPrivateKey *rsa.PrivateKey         // RSA 私钥，用于解密配置中的密码
 }
 
 // -- WithXxx 链式配置方法 --
@@ -235,6 +241,76 @@ func (o *Options) WithID(id string) *Options {
 	return o
 }
 
+// WithCrypt 设置 RSA 私钥。
+//
+// 设置后，所有密码字段会尝试用该私钥解密：
+// Base64 解码 → PKCS#1 v1.5 解密。
+//
+// 解密失败（Base64 解码失败、RSA 解密失败）时保持原样。
+// 这意味着明文密码和密文密码可以共存，无需额外标识。
+//
+// 私钥格式：PEM 编码的 PKCS1 或 PKCS8 RSA 私钥。
+//
+// 典型用法：
+//
+//	opts, _ := sharkapp.NewOption("myproject", "game-server")
+//	opts.WithCrypt(os.Getenv("SHARK_PRIVATE_KEY"))
+func (o *Options) WithCrypt(key string) *Options {
+	if key == "" {
+		return o
+	}
+	key = strings.TrimSpace(key)
+	k, err := parseRSAPrivateKey(key)
+	if err != nil {
+		// 私钥无效时不 panic，保持 nil，解密时 fallback 到原值
+		return o
+	}
+	o.rsaPrivateKey = k
+	return o
+}
+
+// parseRSAPrivateKey 解析 PEM 格式的 RSA 私钥（支持 PKCS1 和 PKCS8）。
+func parseRSAPrivateKey(pemStr string) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode([]byte(pemStr))
+	if block == nil {
+		return nil, fmt.Errorf("failed to parse PEM block")
+	}
+	// 先尝试 PKCS8
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err == nil {
+		if rsaKey, ok := key.(*rsa.PrivateKey); ok {
+			return rsaKey, nil
+		}
+		return nil, fmt.Errorf("not an RSA private key (PKCS8)")
+	}
+	// 回退 PKCS1
+	return x509.ParsePKCS1PrivateKey(block.Bytes)
+}
+
+// decryptPassword 使用 RSA 私钥解密密码。
+// 对密码进行标准 PKCS#1 v1.5 解密：
+// 密码是 Base64 编码的密文 → 解码 → RSA 解密，成功返回明文，失败返回原值。
+func (o *Options) decryptPassword(password string) string {
+	if o.rsaPrivateKey == nil || password == "" {
+		return password
+	}
+	ciphertext, err := base64.StdEncoding.DecodeString(password)
+	if err != nil {
+		return password
+	}
+	plain, err := rsa.DecryptPKCS1v15(nil, o.rsaPrivateKey, ciphertext)
+	if err != nil {
+		return password
+	}
+	return string(plain)
+}
+
+// DecryptPassword 使用已设置的 RSA 私钥解密单个密码。
+// 解密失败时返回原值。
+func (o *Options) DecryptPassword(password string) string {
+	return o.decryptPassword(password)
+}
+
 // ========== 配置加载 ==========
 
 // readSlices 从 viper 中读取字符串切片配置。
@@ -265,8 +341,9 @@ func readSlices(v *viper.Viper, key string) []string {
 // 配置加载流程:
 //  1. 创建 viper 实例，读取当前目录或 ./config 目录下的 config.yaml
 //  2. 同时支持环境变量覆盖（环境变量中 . 替换为 _，如 redis.host → REDIS_HOST）
-//  3. 按照统一的 key 格式解析各中间件的连接信息
-//  4. 仅当 host 列表非空时才创建对应的 Config 实例
+//  3. 自动从环境变量 SHARK_PRIVATE_KEY 读取 RSA 私钥
+//  4. 按照统一的 key 格式解析各中间件的连接信息，解析时对密码字段自动解密
+//  5. 仅当 host 列表非空时才创建对应的 Config 实例
 //
 // 参数:
 //   - project: 项目名称
@@ -320,7 +397,14 @@ func NewOption(project string, name string) (*Options, error) {
 		return nil, err
 	}
 
-	// 解析各中间件配置
+	// 自动从环境变量读取 RSA 私钥
+	if key := strings.TrimSpace(os.Getenv("SHARK_PRIVATE_KEY")); key != "" {
+		if k, err := parseRSAPrivateKey(key); err == nil {
+			opts.rsaPrivateKey = k
+		}
+	}
+
+	// 解析各中间件配置（密码字段在读取时自动解密）
 	opts.parseRedisCluster(v)
 	opts.parseRedisClient(v)
 	opts.parseRedis(v)
@@ -364,7 +448,7 @@ func (o *Options) parseRedisCluster(v *viper.Viper) {
 	}
 	o.redis_cluster = &sharkredis.Config{
 		Host:         hosts,
-		Password:     strings.TrimSpace(v.GetString("redis_cluster.password")),
+		Password:     o.decryptPassword(strings.TrimSpace(v.GetString("redis_cluster.password"))),
 		ReplaceFrom:  strings.TrimSpace(v.GetString("redis_cluster.replace_from")),
 		ReplaceTo:    strings.TrimSpace(v.GetString("redis_cluster.replace_to")),
 		PoolSize:     v.GetInt("redis_cluster.pool_size"),
@@ -380,7 +464,7 @@ func (o *Options) parseRedisClient(v *viper.Viper) {
 	}
 	o.redis_client = &sharkredis.Config{
 		Host:         hosts,
-		Password:     strings.TrimSpace(v.GetString("redis_client.password")),
+		Password:     o.decryptPassword(strings.TrimSpace(v.GetString("redis_client.password"))),
 		ReplaceFrom:  strings.TrimSpace(v.GetString("redis_client.replace_from")),
 		ReplaceTo:    strings.TrimSpace(v.GetString("redis_client.replace_to")),
 		PoolSize:     v.GetInt("redis_client.pool_size"),
@@ -396,7 +480,7 @@ func (o *Options) parseRedis(v *viper.Viper) {
 	}
 	o.redis = &sharkredis.Config{
 		Host:         hosts,
-		Password:     strings.TrimSpace(v.GetString("redis.password")),
+		Password:     o.decryptPassword(strings.TrimSpace(v.GetString("redis.password"))),
 		ReplaceFrom:  strings.TrimSpace(v.GetString("redis.replace_from")),
 		ReplaceTo:    strings.TrimSpace(v.GetString("redis.replace_to")),
 		PoolSize:     v.GetInt("redis.pool_size"),
@@ -413,7 +497,7 @@ func (o *Options) parseDB(v *viper.Viper) {
 	o.db = &sharkdb.Config{
 		Host:                  hosts[0],
 		User:                  strings.TrimSpace(v.GetString("db.user")),
-		Password:              strings.TrimSpace(v.GetString("db.password")),
+		Password:              o.decryptPassword(strings.TrimSpace(v.GetString("db.password"))),
 		Database:              strings.TrimSpace(v.GetString("db.database")),
 		MaxIdleConns:          v.GetInt("db.max_idle_conns"),
 		MaxOpenConns:          v.GetInt("db.max_open_conns"),
@@ -431,7 +515,7 @@ func (o *Options) parseElastic(v *viper.Viper) {
 	o.elastic = &sharkelastic.Config{
 		Host:     hosts,
 		User:     strings.TrimSpace(v.GetString("elastic.user")),
-		Password: strings.TrimSpace(v.GetString("elastic.password")),
+		Password: o.decryptPassword(strings.TrimSpace(v.GetString("elastic.password"))),
 	}
 }
 
@@ -444,7 +528,7 @@ func (o *Options) parseMinIO(v *viper.Viper) {
 	o.minio = &sharkminio.Config{
 		Host:     hosts[0],
 		User:     strings.TrimSpace(v.GetString("minio.user")),
-		Password: strings.TrimSpace(v.GetString("minio.password")),
+		Password: o.decryptPassword(strings.TrimSpace(v.GetString("minio.password"))),
 	}
 }
 
@@ -457,7 +541,7 @@ func (o *Options) parseKafka(v *viper.Viper) {
 	o.kafka = &sharkkafka.Config{
 		Host:     hosts,
 		User:     strings.TrimSpace(v.GetString("kafka.user")),
-		Password: strings.TrimSpace(v.GetString("kafka.password")),
+		Password: o.decryptPassword(strings.TrimSpace(v.GetString("kafka.password"))),
 	}
 }
 
@@ -470,7 +554,7 @@ func (o *Options) parseMongoDB(v *viper.Viper) {
 	o.mongodb = &sharkmongodb.Config{
 		Host:     hosts[0],
 		User:     strings.TrimSpace(v.GetString("mongodb.user")),
-		Password: strings.TrimSpace(v.GetString("mongodb.password")),
+		Password: o.decryptPassword(strings.TrimSpace(v.GetString("mongodb.password"))),
 	}
 }
 
@@ -483,7 +567,7 @@ func (o *Options) parseRabbitMQ(v *viper.Viper) {
 	o.rabbitmq = &sharkrabbitmq.Config{
 		Host:     hosts,
 		User:     strings.TrimSpace(v.GetString("rabbitmq.user")),
-		Password: strings.TrimSpace(v.GetString("rabbitmq.password")),
+		Password: o.decryptPassword(strings.TrimSpace(v.GetString("rabbitmq.password"))),
 	}
 }
 
@@ -496,7 +580,7 @@ func (o *Options) parseRisingWave(v *viper.Viper) {
 	o.risingwave = &sharkrisingwave.Config{
 		Host:     hosts[0],
 		User:     strings.TrimSpace(v.GetString("risingwave.user")),
-		Password: strings.TrimSpace(v.GetString("risingwave.password")),
+		Password: o.decryptPassword(strings.TrimSpace(v.GetString("risingwave.password"))),
 		Database: strings.TrimSpace(v.GetString("risingwave.database")),
 	}
 }
@@ -510,6 +594,6 @@ func (o *Options) parseEtcd(v *viper.Viper) {
 	o.etcd = &sharketcd.Config{
 		Host:     hosts,
 		User:     strings.TrimSpace(v.GetString("etcd.user")),
-		Password: strings.TrimSpace(v.GetString("etcd.password")),
+		Password: o.decryptPassword(strings.TrimSpace(v.GetString("etcd.password"))),
 	}
 }

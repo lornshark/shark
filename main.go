@@ -28,6 +28,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
 	app.Hunt(&Test{svc: app})
 }
 
