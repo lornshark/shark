@@ -118,7 +118,7 @@ type tableScanOrder struct {
 //	    Asc("create_time").
 //	    Asc("id")
 type TableScan[T any] struct {
-	pagesize int              // 每页扫描行数（0 未配置，Next/Prev 会返回 0 条）
+	pagesize int              // 默认每页 5000 行
 	orders   []tableScanOrder // 排序字段列表（多字段联合排序）
 }
 
@@ -143,7 +143,9 @@ type TableScan[T any] struct {
 //	    processBatch(results)
 //	}
 func NewTableScan[T any]() *TableScan[T] {
-	return &TableScan[T]{}
+	return &TableScan[T]{
+		pagesize: 5000, // 默认每页 5000 行
+	}
 }
 
 // PageSize 设置每页扫描行数。
@@ -159,6 +161,9 @@ func NewTableScan[T any]() *TableScan[T] {
 //	scan.PageSize(500) // 可重复调用覆盖
 func (p *TableScan[T]) PageSize(size int) *TableScan[T] {
 	p.pagesize = size
+	if p.pagesize <= 0 {
+		p.pagesize = 5000
+	}
 	return p
 }
 
