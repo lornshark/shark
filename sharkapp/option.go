@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/lornshark/shark/sharkdb"
@@ -233,7 +232,7 @@ func (o *Options) WithEnv(env string) *Options {
 }
 
 // WithID 设置实例编号。
-func (o *Options) WithID(id string) *Options {
+func (o *Options) WithId(id string) *Options {
 	if id == "" {
 		return o
 	}
@@ -374,13 +373,6 @@ func NewOptionWithRsa(project string, name string, rsa string) (*Options, error)
 	// 校验端口范围
 	if err := opts.validatePorts(); err != nil {
 		return nil, err
-	}
-
-	// 自动从环境变量读取 RSA 私钥
-	if key := strings.TrimSpace(os.Getenv("SHARK_PRIVATE_KEY")); key != "" {
-		if k, err := parseRSAPrivateKey(key); err == nil {
-			opts.rsaPrivateKey = k
-		}
 	}
 
 	// 解析各中间件配置（密码字段在读取时自动解密）
