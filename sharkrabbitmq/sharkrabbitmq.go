@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -181,8 +182,17 @@ func (c *Client) connect(index int, wg *sync.WaitGroup) {
 		if c.ctx.Err() != nil {
 			break
 		}
-		// 构建 AMQP 连接 URL
-		amqpurl := "amqp://" + c.config.User + ":" + c.config.Password + "@" + c.config.Host[index]
+		host := c.config.Host[index]
+		scheme := "amqp"
+		switch {
+		case strings.HasPrefix(host, "amqps://"):
+			scheme = "amqps"
+			host = strings.TrimPrefix(host, "amqps://")
+		case strings.HasPrefix(host, "amqp://"):
+			scheme = "amqp"
+			host = strings.TrimPrefix(host, "amqp://")
+		}
+		amqpurl := fmt.Sprintf("%s://%s:%s@%s", scheme, c.config.User, c.config.Password, host)
 		conn, err := amqp.Dial(amqpurl)
 		if err != nil {
 			c.logger.Error("连接Rabbitmq失败", zap.String("host", c.config.Host[index]), zap.Error(err))
