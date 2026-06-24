@@ -178,6 +178,7 @@ func New(options *Options) (*App, error) {
 
 	// ---- Kafka 初始化 ----
 	if options.kafka != nil {
+		app.Logger.Info("正在连接kafka", zap.Strings("host", options.kafka.Host))
 		kafka, err := sharkkafka.New(app.Context, options.kafka, app.Logger)
 		if err != nil {
 			return nil, err
@@ -202,6 +203,7 @@ func New(options *Options) (*App, error) {
 	// 策略：先尝试以集群模式连接，如果服务端返回"cluster support disabled"，
 	// 则回退到单机/主从模式。这种方式兼容了不同部署形态的 Redis。
 	if options.redis != nil {
+		app.Logger.Info("正在连接redis", zap.Strings("host", options.redis.Host))
 		cluster, err := sharkredis.NewCluster(app.Context, options.redis)
 		if err == nil {
 			app.RedisCluster = cluster
@@ -229,6 +231,7 @@ func New(options *Options) (*App, error) {
 
 	// ---- Redis Cluster 明确配置（独立于自动探测） ----
 	if options.redis_cluster != nil && app.RedisCluster == nil {
+		app.Logger.Info("正在连接redis cluster", zap.Strings("host", options.redis_cluster.Host))
 		redis, err := sharkredis.NewCluster(app.Context, options.redis_cluster)
 		if err != nil {
 			app.Logger.Error("连接redis cluster失败", zap.Strings("host", options.redis_cluster.Host), zap.Error(err))
@@ -240,6 +243,7 @@ func New(options *Options) (*App, error) {
 
 	// ---- Redis Client 明确配置（独立于自动探测） ----
 	if options.redis_client != nil && app.RedisClient == nil {
+		app.Logger.Info("正在连接redis client", zap.Strings("host", options.redis_client.Host))
 		redis, err := sharkredis.NewClient(app.Context, options.redis_client)
 		if err != nil {
 			app.Logger.Error("连接redis client失败", zap.Strings("host", options.redis_client.Host), zap.Error(err))
@@ -251,6 +255,7 @@ func New(options *Options) (*App, error) {
 
 	// ---- MySQL 初始化 ----
 	if options.db != nil {
+		app.Logger.Info("正在连接db", zap.String("host", options.db.Host), zap.String("database", options.db.Database))
 		db, err := sharkdb.NewDb(app.Context, app.Logger, options.db)
 		if err != nil {
 			app.Logger.Error("连接db失败", zap.String("host", options.db.Host), zap.String("database", options.db.Database), zap.Error(err))
@@ -262,6 +267,7 @@ func New(options *Options) (*App, error) {
 
 	// ---- Elasticsearch 初始化 ----
 	if options.elastic != nil {
+		app.Logger.Info("正在连接elastic", zap.Strings("host", options.elastic.Host))
 		elastic, err := sharkelastic.New(app.Context, options.elastic)
 		if err != nil {
 			app.Logger.Error("连接elastic失败", zap.Strings("host", options.elastic.Host), zap.Error(err))
@@ -275,6 +281,7 @@ func New(options *Options) (*App, error) {
 	// 使用服务名称的 CRC16 哈希值来选择连接的 broker 节点，
 	// 实现多节点间的负载均衡分布
 	if options.rabbitmq != nil {
+		app.Logger.Info("正在连接rabbitmq", zap.Strings("host", options.rabbitmq.Host))
 		mq, err := sharkrabbitmq.New(app.Context, app.Logger, app.Wg, options.rabbitmq, app.Name, app.Id)
 		if err != nil {
 			app.Logger.Error("连接rabbitmq失败", zap.Strings("host", options.rabbitmq.Host), zap.Error(err))
@@ -290,6 +297,7 @@ func New(options *Options) (*App, error) {
 
 	// ---- RisingWave 初始化 ----
 	if options.risingwave != nil {
+		app.Logger.Info("正在连接risingwave", zap.String("host", options.risingwave.Host), zap.String("database", options.risingwave.Database))
 		rw, err := sharkrisingwave.New(app.Context, app.Logger, options.risingwave)
 		if err != nil {
 			app.Logger.Error("连接risingwave失败", zap.String("host", options.risingwave.Host), zap.String("database", options.risingwave.Database), zap.Error(err))
@@ -301,6 +309,7 @@ func New(options *Options) (*App, error) {
 
 	// ---- etcd 初始化 ----
 	if options.etcd != nil {
+		app.Logger.Info("正在连接etcd", zap.Strings("host", options.etcd.Host))
 		etcd, err := sharketcd.New(app.Context, options.etcd)
 		if err != nil {
 			app.Logger.Error("连接etcd失败", zap.Strings("host", options.etcd.Host), zap.Error(err))
@@ -312,6 +321,7 @@ func New(options *Options) (*App, error) {
 
 	// ---- MongoDB 初始化 ----
 	if options.mongodb != nil {
+		app.Logger.Info("正在连接mongodb", zap.String("host", options.mongodb.Host))
 		mongodb, err := sharkmongodb.New(app.Context, options.mongodb)
 		if err != nil {
 			app.Logger.Error("连接mongodb失败", zap.String("host", options.mongodb.Host), zap.Error(err))
@@ -323,6 +333,7 @@ func New(options *Options) (*App, error) {
 
 	// ---- MinIO 初始化 ----
 	if options.minio != nil {
+		app.Logger.Info("正在连接minio", zap.String("host", options.minio.Host))
 		client, err := sharkminio.New(app.Context, options.minio)
 		if err != nil {
 			app.Logger.Error("连接minio失败", zap.String("host", options.minio.Host), zap.Error(err))
