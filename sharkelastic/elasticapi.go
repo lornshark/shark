@@ -3,15 +3,20 @@ package sharkelastic
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path"
 	"strings"
+	"time"
 
 	"github.com/bytedance/sonic"
 	"github.com/elastic/go-elasticsearch/v9"
 	"github.com/elastic/go-elasticsearch/v9/esapi"
 	"github.com/lornshark/shark/sharkeswhere"
 	"github.com/tidwall/gjson"
+	"github.com/xuri/excelize/v2"
 )
 
 type SharkElastic struct {
@@ -539,6 +544,360 @@ func (s *SharkElastic) Upsert(ctx context.Context, index string, idField string,
 	}
 
 	return nil
+}
+
+// DeleteById 使用 Bulk API 批量删除指定 ID 的文档。
+// 任意一条删除失败则整体返回汇总错误信息，全部成功返回 nil。
+func (s *SharkElastic) DeleteById(ctx context.Context, index string, ids ...any) error {
+	if index == "" {
+		return fmt.Errorf("索引名称不能为空")
+	}
+	if len(ids) == 0 {
+		return fmt.Errorf("至少需要提供一个文档ID")
+	}
+
+	// 构建 Bulk 请求体的 NDJSON
+	var buf bytes.Buffer
+	for i, id := range ids {
+		// 将 ID 转为字符串
+		var idStr string
+		switch v := id.(type) {
+		case string:
+			idStr = v
+		case int:
+			idStr = fmt.Sprintf("%d", v)
+		case int64:
+			idStr = fmt.Sprintf("%d", v)
+		case int32:
+			idStr = fmt.Sprintf("%d", v)
+		case uint:
+			idStr = fmt.Sprintf("%d", v)
+		case uint64:
+			idStr = fmt.Sprintf("%d", v)
+		case uint32:
+			idStr = fmt.Sprintf("%d", v)
+		case float64:
+			idStr = fmt.Sprintf("%v", v)
+		default:
+			idStr = fmt.Sprintf("%v", id)
+		}
+		if idStr == "" {
+			return fmt.Errorf("第 %d 个文档ID为空", i+1)
+		}
+
+		// 写入 delete action 行
+		action := map[string]any{
+			"delete": map[string]any{
+				"_index": index,
+				"_id":    idStr,
+			},
+		}
+		actionBytes, err := sonic.Marshal(action)
+		if err != nil {
+			return fmt.Errorf("第 %d 个文档 action 序列化失败: %w", i+1, err)
+		}
+		buf.Write(actionBytes)
+		buf.WriteByte('\n')
+	}
+
+	// 发送 Bulk 请求
+	bulkReq := esapi.BulkRequest{
+		Body: bytes.NewReader(buf.Bytes()),
+	}
+	resp, err := bulkReq.Do(ctx, s.Client)
+	if err != nil {
+		return fmt.Errorf("Bulk 请求执行失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("读取 Bulk 响应失败: %w", err)
+	}
+	if resp.IsError() {
+		return fmt.Errorf("Bulk 请求失败(状态:%s): %s", resp.Status(), string(respBytes))
+	}
+
+	// 解析响应，检查是否有失败的条目
+	var bulkResp struct {
+		Errors bool `json:"errors"`
+		Items  []map[string]struct {
+			Status int `json:"status"`
+			Error  struct {
+				Type   string `json:"type"`
+				Reason string `json:"reason"`
+			} `json:"error"`
+		} `json:"items"`
+	}
+	if err := sonic.Unmarshal(respBytes, &bulkResp); err != nil {
+		return fmt.Errorf("解析 Bulk 响应失败: %w", err)
+	}
+
+	if bulkResp.Errors {
+		var errMsgs []string
+		for i, item := range bulkResp.Items {
+			for _, result := range item {
+				if result.Error.Type != "" || result.Error.Reason != "" {
+					errMsgs = append(errMsgs, fmt.Sprintf(
+						"第 %d 个文档: [%d] %s: %s", i+1, result.Status, result.Error.Type, result.Error.Reason,
+					))
+				}
+			}
+		}
+		return fmt.Errorf("Bulk 操作部分失败:\n%s", strings.Join(errMsgs, "\n"))
+	}
+
+	return nil
+}
+
+// batchSize 游标分页每批处理的文档数
+const batchSize = 1000
+
+// DeleteBySql 根据 SQL WHERE 条件分批删除文档，使用 search_after 游标深分页，适合百万级数据。
+//
+// 核心要求：SQL 必须包含 order by 子句，且排序字段组合必须保证唯一性。
+// search_after 依赖排序值作为游标，非唯一排序会导致漏删或重复删除。
+// 内部循环：search_after 游标查询(禁用 _source)→按 ID Bulk 删除→直到无结果。
+//
+// SQL 格式：delete from indexname where conditions order by field1 [asc|desc], field2 [asc|desc], ...
+// where 语法与 Find/SqlRaw 完全一致。
+//
+// 使用示例：
+//
+//	// 按条件+唯一排序分批删除
+//	err := client.DeleteBySql(ctx, "delete from users where status = 0 order by user_id asc")
+func (s *SharkElastic) DeleteBySql(ctx context.Context, sql string) error {
+	if strings.TrimSpace(sql) == "" {
+		return fmt.Errorf("SQL 不能为空")
+	}
+
+	input := strings.TrimSpace(sql)
+	lower := strings.ToLower(input)
+	if !strings.HasPrefix(lower, "delete ") && !strings.HasPrefix(lower, "delete\t") {
+		return fmt.Errorf("SQL 必须以 delete 开头，例如: delete from indexname where conditions order by id asc")
+	}
+	afterDelete := strings.TrimSpace(input[6:])
+
+	pq, err := sharkeswhere.Build(afterDelete)
+	if err != nil {
+		return fmt.Errorf("解析 SQL 失败: %w", err)
+	}
+	if pq.Index == "" {
+		return fmt.Errorf("SQL 缺少 from 子句指定索引")
+	}
+
+	queryClause, ok := pq.Body["query"]
+	if !ok {
+		queryClause = map[string]any{"match_all": map[string]any{}}
+	}
+
+	// search_after 必须有排序字段，sort 值作为游标
+	sortSpec, ok := pq.Body["sort"]
+	if !ok {
+		return fmt.Errorf("DeleteBySql 使用 search_after 游标，SQL 必须包含 order by 且排序字段必须唯一，例如: delete from users where status = 0 order by user_id asc")
+	}
+
+	var searchAfter []any
+	for {
+		searchBody := map[string]any{
+			"query":   queryClause,
+			"size":    batchSize,
+			"sort":    sortSpec,
+			"_source": false,
+		}
+		if len(searchAfter) > 0 {
+			searchBody["search_after"] = searchAfter
+		}
+
+		respBytes, err := s.Search(ctx, pq.Index, searchBody)
+		if err != nil {
+			return fmt.Errorf("查询待删除文档失败: %w", err)
+		}
+
+		hits := gjson.GetBytes(respBytes, "hits.hits")
+		if !hits.Exists() || !hits.IsArray() || len(hits.Array()) == 0 {
+			break
+		}
+
+		var ids []any
+		hitArr := hits.Array()
+		for _, hit := range hitArr {
+			id := hit.Get("_id")
+			if !id.Exists() || id.String() == "" {
+				return fmt.Errorf("查询结果中缺少 _id 字段")
+			}
+			ids = append(ids, id.String())
+		}
+
+		// 按 ID 批量删除
+		if err := s.DeleteById(ctx, pq.Index, ids...); err != nil {
+			return fmt.Errorf("分批删除失败: %w", err)
+		}
+
+		if len(hitArr) < batchSize {
+			break
+		}
+
+		// 取最后一条的 sort 值作为下一次 search_after
+		searchAfter = nil
+		lastSort := hitArr[len(hitArr)-1].Get("sort")
+		if lastSort.Exists() && lastSort.IsArray() {
+			for _, v := range lastSort.Array() {
+				searchAfter = append(searchAfter, v.Value())
+			}
+		} else {
+			break
+		}
+	}
+
+	return nil
+}
+
+// ExportBySql 根据 SQL WHERE 条件使用 search_after 游标分批查询数据并导出为 Excel(.xlsx)。
+// 内部 search_after 深分页→excelize StreamWriter 流式写入，内存始终只有一批数据量，适合百万级数据。
+//
+// 核心要求：SQL 必须包含 order by 子句，且排序字段组合必须保证唯一性。
+// search_after 依赖排序值作为游标，非唯一排序会导致数据遗漏或重复。
+// 因此如果排序字段不唯一（如只按 status 排序），可能导致导出数据不全。
+//
+// SQL 格式：select field,... from indexname where conditions order by field1 [asc|desc], ...
+// where 语法与 Find/SqlRaw 完全一致，order by 必须存在。
+//
+// 参数：
+//   - ctx:    上下文，用于取消导出操作
+//   - sql:    SQL 风格查询字符串，必须包含 from 子句和 order by 子句
+//   - name:   导出文件名前缀（自动追加时间戳），文件保存在 os.TempDir()
+//   - header: Excel 表头
+//   - cb:     行数据转换函数，入参为每条文档的 JSON 原始字节，出参为每列的值切片
+//
+// 返回值：
+//   - string: 生成的文件路径
+//   - error:  导出失败时返回错误
+//
+// 使用示例：
+//
+//	filePath, err := client.ExportBySql(
+//	    ctx,
+//	    "select user_id,name,age from users where status = 1 order by user_id asc",
+//	    "用户列表",
+//	    []any{"用户ID", "姓名", "年龄"},
+//	    func(docBytes []byte) []any {
+//	        return []any{
+//	            gjson.GetBytes(docBytes, "user_id").String(),
+//	            gjson.GetBytes(docBytes, "name").String(),
+//	            gjson.GetBytes(docBytes, "age").Int(),
+//	        }
+//	    },
+//	)
+func (s *SharkElastic) ExportBySql(ctx context.Context, sql string, name string, header []any, cb func([]byte) []any) (string, error) {
+	if strings.TrimSpace(sql) == "" {
+		return "", fmt.Errorf("SQL 不能为空")
+	}
+
+	pq, err := sharkeswhere.Build(sql)
+	if err != nil {
+		return "", fmt.Errorf("解析 SQL 失败: %w", err)
+	}
+	if pq.Index == "" {
+		return "", fmt.Errorf("SQL 缺少 from 子句指定索引")
+	}
+
+	queryClause, ok := pq.Body["query"]
+	if !ok {
+		queryClause = map[string]any{"match_all": map[string]any{}}
+	}
+
+	// search_after 必须有排序字段，sort 值作为游标
+	sortSpec, ok := pq.Body["sort"]
+	if !ok {
+		return "", fmt.Errorf("ExportBySql 使用 search_after 游标，SQL 必须包含 order by 且排序字段必须唯一，例如: select user_id,name from users where status = 1 order by user_id asc")
+	}
+
+	excelFile := excelize.NewFile()
+	defer excelFile.Close()
+
+	streamWriter, err := excelFile.NewStreamWriter("Sheet1")
+	if err != nil {
+		return "", err
+	}
+	if err := streamWriter.SetRow("A1", header); err != nil {
+		return "", err
+	}
+
+	rowIndex := 0
+	var searchAfter []any
+	for {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+
+		searchBody := map[string]any{
+			"query": queryClause,
+			"size":  batchSize,
+			"sort":  sortSpec,
+		}
+		if len(searchAfter) > 0 {
+			searchBody["search_after"] = searchAfter
+		}
+
+		respBytes, err := s.Search(ctx, pq.Index, searchBody)
+		if err != nil {
+			return "", fmt.Errorf("查询待导出文档失败: %w", err)
+		}
+
+		hits := gjson.GetBytes(respBytes, "hits.hits")
+		if !hits.Exists() || !hits.IsArray() || len(hits.Array()) == 0 {
+			break
+		}
+
+		hitArr := hits.Array()
+
+		// 提取 _source 数组（使用 encoding/json.RawMessage 保留原始 JSON 对象）
+		sourcesJSON := gjson.GetBytes(respBytes, "hits.hits.#._source")
+		var docs []json.RawMessage
+		if err := json.Unmarshal([]byte(sourcesJSON.Raw), &docs); err != nil {
+			return "", fmt.Errorf("解析文档数据失败: %w", err)
+		}
+
+		for _, doc := range docs {
+			row := cb(doc)
+			d := make([]any, 0, len(row))
+			for _, v := range row {
+				d = append(d, excelize.Cell{StyleID: 49, Value: fmt.Sprint(v)})
+			}
+			cell, _ := excelize.CoordinatesToCellName(1, rowIndex+2)
+			if err := streamWriter.SetRow(cell, d); err != nil {
+				return "", err
+			}
+			rowIndex++
+		}
+
+		if len(hitArr) < batchSize {
+			break
+		}
+
+		// 取最后一条的 sort 值作为下一次 search_after
+		searchAfter = nil
+		lastSort := hitArr[len(hitArr)-1].Get("sort")
+		if lastSort.Exists() && lastSort.IsArray() {
+			for _, v := range lastSort.Array() {
+				searchAfter = append(searchAfter, v.Value())
+			}
+		} else {
+			break
+		}
+	}
+
+	if err := streamWriter.Flush(); err != nil {
+		return "", err
+	}
+
+	fileName := fmt.Sprintf("%v_%v.xlsx", name, time.Now().Format("20060102150405"))
+	if err := excelFile.SaveAs(path.Join(os.TempDir(), fileName)); err != nil {
+		return "", err
+	}
+
+	return fileName, nil
 }
 
 // SqlRaw 执行 SQL 风格查询并返回原始 ES 响应 JSON 字节。
