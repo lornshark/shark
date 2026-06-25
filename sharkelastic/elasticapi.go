@@ -114,6 +114,75 @@ func (s *SharkElastic) CreateIndex(ctx context.Context, index string, shards int
 	return nil
 }
 
+// CreateIndexStrict 创建严格模式的索引，不可以动态添加未定义的字段
+// index: 索引名称
+// shards: 主分片数量（<=0 时使用 ES 默认值）
+// mappings: 可变参数，字段映射列表
+//
+// 使用示例:
+//
+//	err := client.CreateIndexStrict(ctx, "users", 2,
+//	    sharkelastic.FieldMapping{Name: "name", Type: sharkelastic.MappingTypeText},
+//	    sharkelastic.FieldMapping{Name: "age", Type: sharkelastic.MappingTypeInteger},
+//	)
+func (s *SharkElastic) CreateIndexStrict(ctx context.Context, index string, shards int, mappings ...FieldMapping) error {
+	if index == "" {
+		return fmt.Errorf("索引名称不能为空")
+	}
+
+	settings := map[string]any{}
+	if shards > 0 {
+		settings["number_of_shards"] = shards
+	}
+
+	body := map[string]any{}
+	if len(settings) > 0 {
+		body["settings"] = settings
+	}
+
+	mappingsBody := map[string]any{
+		"dynamic": "strict",
+	}
+	if len(mappings) > 0 {
+		props := map[string]any{}
+		for _, m := range mappings {
+			field := map[string]any{"type": string(m.Type)}
+			if m.Format != "" {
+				field["format"] = m.Format
+			}
+			props[m.Name] = field
+		}
+		mappingsBody["properties"] = props
+	}
+	body["mappings"] = mappingsBody
+
+	var bodyReader io.Reader
+	if len(body) > 0 {
+		bodyBytes, err := sonic.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("序列化创建索引请求体失败: %w", err)
+		}
+		bodyReader = bytes.NewReader(bodyBytes)
+	}
+
+	req := esapi.IndicesCreateRequest{
+		Index: index,
+		Body:  bodyReader,
+	}
+	resp, err := req.Do(ctx, s.Client)
+	if err != nil {
+		return fmt.Errorf("创建索引请求执行失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.IsError() {
+		errBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("创建索引失败(状态:%s): %s", resp.Status(), string(errBytes))
+	}
+
+	return nil
+}
+
 // SetIndexMapping 为已存在的索引添加或更新字段映射
 // index: 索引名称
 // mappings: 可变参数，要添加/更新的字段映射列表
