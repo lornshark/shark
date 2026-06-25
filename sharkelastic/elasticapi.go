@@ -37,8 +37,9 @@ const (
 
 // FieldMapping 定义索引字段映射
 type FieldMapping struct {
-	Name string
-	Type MappingType
+	Name   string
+	Type   MappingType
+	Format string // 可选，字段格式，例如 date 类型的 "yyyy-MM-dd" 或 "yyyy-MM-dd HH:mm:ss"
 }
 
 // CreateIndex 创建索引，可指定分片数和字段映射
@@ -77,7 +78,11 @@ func (s *SharkElastic) CreateIndex(ctx context.Context, index string, shards int
 	if len(mappings) > 0 {
 		props := map[string]any{}
 		for _, m := range mappings {
-			props[m.Name] = map[string]any{"type": string(m.Type)}
+			field := map[string]any{"type": string(m.Type)}
+			if m.Format != "" {
+				field["format"] = m.Format
+			}
+			props[m.Name] = field
 		}
 		body["mappings"] = map[string]any{"properties": props}
 	}
@@ -130,7 +135,11 @@ func (s *SharkElastic) SetIndexMapping(ctx context.Context, index string, mappin
 
 	props := map[string]any{}
 	for _, m := range mappings {
-		props[m.Name] = map[string]any{"type": string(m.Type)}
+		field := map[string]any{"type": string(m.Type)}
+		if m.Format != "" {
+			field["format"] = m.Format
+		}
+		props[m.Name] = field
 	}
 	body := map[string]any{
 		"properties": props,
