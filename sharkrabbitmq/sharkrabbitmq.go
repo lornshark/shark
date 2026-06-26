@@ -400,6 +400,18 @@ func (c *Client) BatchConsume(exchange string, queue string, key string, handler
 			dataChannel, err := channel.Consume(queue, fmt.Sprintf("%v.%v", c.name, c.id),
 				false, false, false, false, nil,
 			)
+			drainChannel := make(chan amqp.Delivery, 10000)
+			// 将 dataChannel 的消息转发到 drainChannel，避免阻塞
+			go func() {
+				for msg := range dataChannel {
+					select {
+					case drainChannel <- msg:
+					case <-c.ctx.Done():
+						return
+					}
+				}
+				close(drainChannel)
+			}()
 			if err != nil {
 				channel.Close()
 				time.Sleep(time.Second)
@@ -421,7 +433,7 @@ func (c *Client) BatchConsume(exchange string, queue string, key string, handler
 			}
 			for {
 				// 批量收集消息（每批最多 5000 条）
-				messages := sharkfunc.DrainChannelN(ctx, dataChannel, 5000)
+				messages := sharkfunc.DrainChannelN(ctx, drainChannel, 5000)
 				if len(messages) == 0 && ctx.Err() != nil {
 					cancel()
 					break
