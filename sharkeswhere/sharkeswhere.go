@@ -14,6 +14,16 @@
 //	or     -> bool.should (自动扁平化)
 //	()     -> 分组
 //
+// select 聚合函数：
+//
+//	sum(field) / avg(field) / count(field) / count(*) / min(field) / max(field)
+//	可选 as 别名，例如 sum(amount) as total
+//	聚合存在时自动 size=0
+//
+// select 表达式：
+//
+//	a + b as c, a - b, a * b, a / b → ES script_fields (Painless)
+//
 // 完整语法：
 //
 //	select field1, field2 from indexname where conditions limit N offset N
@@ -23,11 +33,6 @@
 // where    → 查询条件
 // limit    → ES size（可选）
 // offset   → ES from（分页偏移，可选，必须在 limit 之后）
-//
-// 使用示例：
-//
-//	pq, err := sharkeswhere.Build("status = 1 and age >= 18")
-//	pq, err := sharkeswhere.Build("select name,age from users where status = 1 limit 10")
 package sharkeswhere
 
 import (
@@ -37,73 +42,83 @@ import (
 
 // ParsedQuery 是 Build 的解析结果。
 type ParsedQuery struct {
-	// Index 为 from 子句指定的索引名，空字符串表示未指定。
 	Index string
-	// Body 为构建好的 ES 查询 DSL，可直接传给 ES Search API。
-	// 包含 "query"、"size"、"from"、"_source" 等键。
-	Body map[string]any
+	Body  map[string]any
 }
 
-// Build 将 SQL 风格查询字符串解析为 ES 查询 DSL。
-//
-// 完整语法：
-//
-//	[select field,...] [from indexname] where conditions [limit N] [offset N]
-//
-// select 和 from 是可选的，向后兼容旧用法 "status = 1"。
+// ---------------------------------------------------------------------------
+// select item 类型
+// ---------------------------------------------------------------------------
+
+type selectItemType int
+
+const (
+	selPlain selectItemType = iota
+	selAgg
+	selExpr
+)
+
+type selectItem struct {
+	Type      selectItemType
+	Alias     string
+	RawInput  string
+	Field     string
+	AggFunc   string
+	AggField  string
+	ExprParts []aggExprPart
+}
+
+type aggExprPart struct {
+	FuncName   string
+	Field      string
+	RefName    string
+	ResolvedTo string
+}
+
+// ---------------------------------------------------------------------------
+// Build
+// ---------------------------------------------------------------------------
+
 func Build(where string) (*ParsedQuery, error) {
 	input := strings.TrimSpace(where)
 	if input == "" {
 		return nil, fmt.Errorf("WHERE 子句不能为空")
 	}
 
-	var selectFields []string
+	var selectItems []selectItem
 	var fromIndex string
 	var whereClause string
 
-	// 从左到右解析：select / from / where / limit / offset
 	remaining := input
-
-	// 1. 提取最前面的 "select field1, field2, ..."
-	remaining, selectFields = extractSelect(remaining)
-
-	// 2. 提取 "from indexname"
+	remaining, selectItems = extractSelect(remaining)
 	remaining, fromIndex = extractFrom(remaining)
 
-	// 3. 提取 "where" 关键字，剩余部分为 where 条件
 	var hasWhere bool
 	remaining, hasWhere = extractWhere(remaining)
-
 	if hasWhere {
 		whereClause = remaining
 	} else {
-		// 如果没有显式 where 关键字，且之前有 select/from，剩余部分就是 where
-		if len(selectFields) > 0 || fromIndex != "" {
+		if len(selectItems) > 0 || fromIndex != "" {
 			whereClause = remaining
 		} else {
-			// 纯 where 子句（向后兼容）
 			whereClause = remaining
 		}
 	}
 
-	// 4. 从尾部提取 order by / limit / offset
 	var sortBody []any
 	whereClause, sortBody = extractOrderBy(whereClause)
 	var size, esFrom int
 	whereClause, size, esFrom = extractLimitOffset(whereClause)
 
-	// 5. Tokenize 并解析 where 条件
 	whereClause = strings.TrimSpace(whereClause)
 	var esQuery map[string]any
 	if whereClause == "" {
-		// 无条件查询，使用 match_all
 		esQuery = map[string]any{"match_all": map[string]any{}}
 	} else {
 		tokens, err := tokenize(whereClause)
 		if err != nil {
 			return nil, fmt.Errorf("词法分析失败: %w", err)
 		}
-
 		p := &parser{tokens: tokens, pos: 0}
 		esQuery, err = p.parseWhere()
 		if err != nil {
@@ -114,40 +129,212 @@ func Build(where string) (*ParsedQuery, error) {
 		}
 	}
 
-	// 6. 构建最终 body
 	body := map[string]any{"query": esQuery}
-	if size > 0 {
-		body["size"] = size
+
+	var plainFields []string
+	var hasAgg bool
+
+	for _, item := range selectItems {
+		switch item.Type {
+		case selAgg:
+			hasAgg = true
+		case selExpr:
+			hasAgg = true
+		case selPlain:
+			alias := item.Field
+			if item.Alias != "" {
+				alias = item.Alias
+			}
+			plainFields = append(plainFields, alias)
+		}
 	}
-	if esFrom > 0 {
-		body["from"] = esFrom
+
+	if hasAgg {
+		body["size"] = 0
+		aggs := buildAggs(selectItems)
+		if len(aggs) > 0 {
+			body["aggs"] = aggs
+		}
+		scriptFields := buildScriptFields(selectItems)
+		if len(scriptFields) > 0 {
+			body["script_fields"] = scriptFields
+		}
+	} else {
+		if size > 0 {
+			body["size"] = size
+		}
+		if esFrom > 0 {
+			body["from"] = esFrom
+		}
+		if len(plainFields) > 0 {
+			var sf map[string]any
+			for _, item := range selectItems {
+				if item.Type == selExpr {
+					if sf == nil {
+						sf = make(map[string]any)
+					}
+					alias := item.Alias
+					if alias == "" {
+						alias = sanitizeAlias(item.RawInput)
+					}
+					sf[alias] = map[string]any{
+						"script": map[string]any{
+							"source": fieldExprToPainless(item.RawInput),
+						},
+					}
+				}
+			}
+			if len(sf) > 0 {
+				body["script_fields"] = sf
+				body["size"] = 0
+			} else {
+				body["_source"] = plainFields
+			}
+		}
 	}
-	if len(selectFields) > 0 {
-		body["_source"] = selectFields
-	}
+
 	if len(sortBody) > 0 {
 		body["sort"] = sortBody
 	}
 
-	return &ParsedQuery{
-		Index: fromIndex,
-		Body:  body,
-	}, nil
+	return &ParsedQuery{Index: fromIndex, Body: body}, nil
 }
 
-// extractSelect 从字符串开头提取 "select field1, field2, ..." 子句。
-// 返回剩余字符串和字段列表。
-func extractSelect(input string) (remaining string, fields []string) {
+// buildAggs 构建 ES aggs DSL。
+func buildAggs(items []selectItem) map[string]any {
+	aggs := make(map[string]any)
+	for _, item := range items {
+		if item.Type == selAgg {
+			alias := item.Alias
+			if alias == "" {
+				alias = item.AggFunc + "_" + item.AggField
+			}
+			aggs[alias] = buildSingleAgg(item)
+		}
+	}
+	for _, item := range items {
+		if item.Type == selExpr && len(item.ExprParts) > 0 {
+			alias := item.Alias
+			if alias == "" {
+				alias = "expr"
+			}
+			for _, part := range item.ExprParts {
+				partAlias := part.FuncName + "_" + part.Field
+				if _, exists := aggs[partAlias]; !exists {
+					aggs[partAlias] = buildSingleAgg(selectItem{
+						Type: selAgg, Alias: partAlias, AggFunc: part.FuncName, AggField: part.Field,
+					})
+				}
+			}
+			bucketsPath := make(map[string]string)
+			scriptSource := item.RawInput
+			for _, part := range item.ExprParts {
+				refName := part.FuncName + "_" + part.Field
+				bucketsPath[refName] = refName
+				needle := part.FuncName + "(" + part.Field + ")"
+				scriptSource = strings.ReplaceAll(scriptSource, needle, "params."+refName)
+			}
+			aggs[alias] = map[string]any{
+				"bucket_script": map[string]any{
+					"buckets_path": bucketsPath,
+					"script":       map[string]any{"source": scriptSource, "lang": "painless"},
+				},
+			}
+		}
+	}
+	return aggs
+}
+
+func buildSingleAgg(item selectItem) map[string]any {
+	switch item.AggFunc {
+	case "sum":
+		return map[string]any{"sum": map[string]any{"field": item.AggField}}
+	case "avg":
+		return map[string]any{"avg": map[string]any{"field": item.AggField}}
+	case "count":
+		if item.AggField == "" || strings.EqualFold(item.AggField, "*") {
+			return map[string]any{"value_count": map[string]any{"field": "_id"}}
+		}
+		return map[string]any{"value_count": map[string]any{"field": item.AggField}}
+	case "min":
+		return map[string]any{"min": map[string]any{"field": item.AggField}}
+	case "max":
+		return map[string]any{"max": map[string]any{"field": item.AggField}}
+	default:
+		return map[string]any{}
+	}
+}
+
+func buildScriptFields(items []selectItem) map[string]any {
+	sf := make(map[string]any)
+	for _, item := range items {
+		if item.Type == selExpr && len(item.ExprParts) == 0 {
+			alias := item.Alias
+			if alias == "" {
+				alias = sanitizeAlias(item.RawInput)
+			}
+			sf[alias] = map[string]any{
+				"script": map[string]any{"source": fieldExprToPainless(item.RawInput)},
+			}
+		}
+	}
+	if len(sf) == 0 {
+		return nil
+	}
+	return sf
+}
+
+func fieldExprToPainless(expr string) string {
+	var result strings.Builder
+	i := 0
+	for i < len(expr) {
+		c := expr[i]
+		if c == ' ' || c == '\t' {
+			result.WriteByte(' ')
+			i++
+		} else if c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')' {
+			result.WriteByte(c)
+			i++
+		} else if c >= '0' && c <= '9' {
+			start := i
+			for i < len(expr) && ((expr[i] >= '0' && expr[i] <= '9') || expr[i] == '.') {
+				i++
+			}
+			result.WriteString(expr[start:i])
+		} else {
+			start := i
+			for i < len(expr) && !isExprDelim(expr[i]) {
+				i++
+			}
+			ident := strings.TrimSpace(expr[start:i])
+			if ident != "" {
+				result.WriteString("doc['" + ident + "'].value")
+			}
+		}
+	}
+	return result.String()
+}
+
+func isExprDelim(c byte) bool {
+	return c == ' ' || c == '\t' || c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')'
+}
+
+func sanitizeAlias(expr string) string {
+	r := strings.NewReplacer("+", "_plus_", "-", "_minus_", "*", "_mul_", "/", "_div_", " ", "", "(", "", ")", "")
+	return r.Replace(expr)
+}
+
+// ---------------------------------------------------------------------------
+// select 解析
+// ---------------------------------------------------------------------------
+
+func extractSelect(input string) (remaining string, items []selectItem) {
 	lower := strings.ToLower(input)
 	if !strings.HasPrefix(lower, "select ") && !strings.HasPrefix(lower, "select\t") {
 		return input, nil
 	}
-
-	// 跳过 "select" 关键字
-	rest := input[6:] // len("select")
+	rest := input[6:]
 	rest = strings.TrimLeft(rest, " \t")
-
-	// 找到下一个关键字 "from" 或 "where"，字段列表在这之前
 	lowerRest := strings.ToLower(rest)
 	endIdx := findKeywordBoundary(lowerRest, " from ")
 	if endIdx < 0 {
@@ -159,31 +346,207 @@ func extractSelect(input string) (remaining string, fields []string) {
 	if endIdx < 0 {
 		endIdx = findKeywordEndBoundary(lowerRest, " where")
 	}
-
 	var fieldsStr string
 	if endIdx >= 0 {
 		fieldsStr = strings.TrimSpace(rest[:endIdx])
 		remaining = rest[endIdx:]
 	} else {
-		// select 后面没有 from/where，整个剩余为字段
 		fieldsStr = strings.TrimSpace(rest)
 		remaining = ""
 	}
-
 	if fieldsStr == "" || fieldsStr == "*" {
 		return remaining, nil
 	}
-
-	for _, f := range strings.Split(fieldsStr, ",") {
-		f = strings.TrimSpace(f)
-		if f != "" {
-			fields = append(fields, f)
-		}
-	}
-	return remaining, fields
+	items = parseSelectItems(fieldsStr)
+	return remaining, items
 }
 
-// findKeywordBoundary 在 s 中查找 " keyword " 并返回 keyword 的起始索引。
+func parseSelectItems(raw string) []selectItem {
+	var items []selectItem
+	parts := splitSelectTopLevel(raw, ',')
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		items = append(items, parseSelectItem(part))
+	}
+	return items
+}
+
+func splitSelectTopLevel(s string, sep byte) []string {
+	var parts []string
+	depth := 0
+	start := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case sep:
+			if depth == 0 {
+				parts = append(parts, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, s[start:])
+	return parts
+}
+
+func parseSelectItem(raw string) selectItem {
+	raw = strings.TrimSpace(raw)
+	var alias string
+	var withoutAlias string
+	if idx, sepLen := findAsKeyword(raw); idx >= 0 {
+		withoutAlias = strings.TrimSpace(raw[:idx])
+		alias = strings.TrimSpace(raw[idx+sepLen:])
+		alias = trimBacktick(alias)
+	} else {
+		withoutAlias = raw
+	}
+	withoutAlias = strings.TrimSpace(withoutAlias)
+	if aggItem, ok := tryParseAgg(withoutAlias, alias); ok {
+		return aggItem
+	}
+	if containsArithOps(withoutAlias) {
+		exprParts := extractAggExprParts(withoutAlias)
+		return selectItem{
+			Type: selExpr, Alias: alias, RawInput: withoutAlias, ExprParts: exprParts,
+		}
+	}
+	field := trimBacktick(withoutAlias)
+	return selectItem{Type: selPlain, Alias: alias, Field: field}
+}
+
+func findAsKeyword(s string) (int, int) {
+	lower := strings.ToLower(s)
+	for i := 0; i < len(lower); i++ {
+		if strings.HasPrefix(lower[i:], " as ") {
+			return i, 4
+		}
+		if strings.HasPrefix(lower[i:], " as\t") {
+			return i, 4
+		}
+	}
+	if strings.HasSuffix(lower, " as") {
+		return len(lower) - 3, 3
+	}
+	if strings.HasPrefix(lower, "as ") {
+		return 0, 3
+	}
+	return -1, 0
+}
+
+func tryParseAgg(raw, alias string) (selectItem, bool) {
+	lower := strings.ToLower(raw)
+	aggFuncs := []string{"sum", "avg", "count", "min", "max"}
+	for _, fn := range aggFuncs {
+		prefix := fn + "("
+		if strings.HasPrefix(lower, prefix) {
+			closeIdx := findMatchingParen(raw, len(fn))
+			if closeIdx == len(raw)-1 {
+				inner := strings.TrimSpace(raw[len(fn)+1 : closeIdx])
+				if fn == "count" && (inner == "*" || strings.ToLower(inner) == "*") {
+					return selectItem{Type: selAgg, Alias: alias, AggFunc: "count", AggField: "*"}, true
+				}
+				inner = trimBacktick(inner)
+				if inner != "" {
+					return selectItem{Type: selAgg, Alias: alias, AggFunc: fn, AggField: inner}, true
+				}
+			}
+		}
+	}
+	return selectItem{}, false
+}
+
+func containsArithOps(s string) bool {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '+', '-', '*', '/':
+			if !isInsideParens(s, i) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isInsideParens(s string, pos int) bool {
+	depth := 0
+	for i := 0; i < pos; i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	return depth > 0
+}
+
+func extractAggExprParts(expr string) []aggExprPart {
+	var parts []aggExprPart
+	fns := []string{"sum", "avg", "count", "min", "max"}
+	lower := strings.ToLower(expr)
+	for _, fn := range fns {
+		prefix := fn + "("
+		searchStart := 0
+		for {
+			idx := strings.Index(lower[searchStart:], prefix)
+			if idx < 0 {
+				break
+			}
+			absIdx := searchStart + idx
+			parenStart := absIdx + len(prefix)
+			closeIdx := findMatchingParen(expr, parenStart-1)
+			if closeIdx < 0 {
+				searchStart = absIdx + 1
+				continue
+			}
+			inner := strings.TrimSpace(expr[parenStart:closeIdx])
+			inner = trimBacktick(inner)
+			if fn == "count" && (inner == "*" || strings.ToLower(inner) == "*") {
+				inner = "*"
+			}
+			if inner != "" {
+				parts = append(parts, aggExprPart{FuncName: fn, Field: inner, RefName: fn + "_" + inner})
+			}
+			searchStart = closeIdx + 1
+		}
+	}
+	return parts
+}
+
+func findMatchingParen(s string, openIdx int) int {
+	if openIdx < 0 || openIdx >= len(s) || s[openIdx] != '(' {
+		return -1
+	}
+	depth := 0
+	for i := openIdx; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func trimBacktick(s string) string {
+	if len(s) >= 2 && s[0] == '`' && s[len(s)-1] == '`' {
+		return s[1 : len(s)-1]
+	}
+	return s
+}
+
 func findKeywordBoundary(s, keyword string) int {
 	idx := strings.Index(s, keyword)
 	if idx < 0 {
@@ -192,7 +555,6 @@ func findKeywordBoundary(s, keyword string) int {
 	return idx
 }
 
-// findKeywordEndBoundary 在 s 中查找 " keyword" 且 keyword 在末尾的情况。
 func findKeywordEndBoundary(s, keyword string) int {
 	trimmed := strings.TrimRight(s, " \t")
 	if strings.HasSuffix(strings.ToLower(trimmed), keyword) {
@@ -201,56 +563,41 @@ func findKeywordEndBoundary(s, keyword string) int {
 	return -1
 }
 
-// extractFrom 从字符串开头提取 "from indexname" 子句。
-// 返回剩余字符串和索引名。
 func extractFrom(input string) (remaining string, indexName string) {
 	trimmed := strings.TrimLeft(input, " \t")
 	lower := strings.ToLower(trimmed)
 	if !strings.HasPrefix(lower, "from ") && !strings.HasPrefix(lower, "from\t") {
 		return input, ""
 	}
-
-	rest := trimmed[4:] // len("from")
+	rest := trimmed[4:]
 	rest = strings.TrimLeft(rest, " \t")
-
-	// 索引名到下一个空格或关键字为止
 	idx := strings.IndexAny(rest, " \t")
 	if idx < 0 {
-		return "", rest
+		return "", trimBacktick(rest)
 	}
-	indexName = rest[:idx]
+	indexName = trimBacktick(rest[:idx])
 	remaining = strings.TrimSpace(rest[idx:])
 	return remaining, indexName
 }
 
-// extractWhere 从字符串开头提取 "where" 关键字。
-// 返回剩余字符串和是否找到 where。
 func extractWhere(input string) (remaining string, found bool) {
 	trimmed := strings.TrimLeft(input, " \t")
 	lowerTrimmed := strings.ToLower(trimmed)
-
-	// 正好是 "where"，后面没有条件（可用 match_all）
 	if lowerTrimmed == "where" {
 		return "", true
 	}
 	if strings.HasPrefix(lowerTrimmed, "where ") || strings.HasPrefix(lowerTrimmed, "where\t") {
-		// 找到 where 关键字，跳过它
-		skipped := trimmed[5:] // len("where")
+		skipped := trimmed[5:]
 		return strings.TrimLeft(skipped, " \t"), true
 	}
 	return input, false
 }
 
-// extractLimitOffset 从 WHERE 字符串末尾提取 "limit N" 和 "offset N"。
-// 返回去除这两个子句后的剩余字符串、size、from。
-// offset 必须在 limit 之后，例如 "x = 1 limit 10 offset 5"。
 func extractLimitOffset(input string) (remaining string, size int, from int) {
 	lower := strings.ToLower(input)
-
-	// 1. 先尝试匹配末尾的 "offset N"
 	offsetIdx := lastKeywordIndex(lower, "offset")
 	if offsetIdx >= 0 {
-		after := strings.TrimSpace(input[offsetIdx+6:]) // 6 = len("offset")
+		after := strings.TrimSpace(input[offsetIdx+6:])
 		n, ok := parseInt(after)
 		if ok {
 			if n > 0 {
@@ -260,11 +607,9 @@ func extractLimitOffset(input string) (remaining string, size int, from int) {
 			lower = strings.ToLower(input)
 		}
 	}
-
-	// 2. 再匹配末尾的 "limit N"
 	limitIdx := lastKeywordIndex(lower, "limit")
 	if limitIdx >= 0 {
-		after := strings.TrimSpace(input[limitIdx+5:]) // 5 = len("limit")
+		after := strings.TrimSpace(input[limitIdx+5:])
 		n, ok := parseInt(after)
 		if ok {
 			if n > 0 {
@@ -273,35 +618,16 @@ func extractLimitOffset(input string) (remaining string, size int, from int) {
 			input = strings.TrimSpace(input[:limitIdx])
 		}
 	}
-
 	return input, size, from
 }
 
-// extractOrderBy 从字符串末尾提取 "order by field1 [asc|desc], field2 [asc|desc], ..."。
-// 返回去除排序子句后的剩余字符串（保留 limit/offset）和 ES sort 数组。
-//
-// 语法:
-//
-//	order by field1 [asc|desc], field2 [asc|desc], ...
-//
-// 默认排序方向为 asc。order by 后的 limit/offset 会被保留在原位置供后续处理。
-//
-// 示例:
-//
-//	"name = '张' order by age desc"              → remaining="name = '张'", sort=[{"age":"desc"}]
-//	"name = '张' order by age desc limit 10"     → remaining="name = '张'  limit 10", sort=[{"age":"desc"}]
-//	"name = '张' order by age, name desc"        → remaining="name = '张'", sort=[{"age":"asc"},{"name":"desc"}]
 func extractOrderBy(input string) (remaining string, sortBody []any) {
 	lower := strings.ToLower(input)
 	idx := lastKeywordIndex(lower, "order by")
 	if idx < 0 {
 		return input, nil
 	}
-
-	// 提取 "order by" 之后的所有内容
-	after := strings.TrimSpace(input[idx+8:]) // 8 = len("order by")
-
-	// 找到排序字段的结束位置（limit 或 offset 关键字之前）
+	after := strings.TrimSpace(input[idx+8:])
 	sortEnd := len(after)
 	lowerAfter := strings.ToLower(after)
 	if limitIdx := lastKeywordIndex(lowerAfter, "limit"); limitIdx >= 0 {
@@ -309,13 +635,8 @@ func extractOrderBy(input string) (remaining string, sortBody []any) {
 	} else if offsetIdx := lastKeywordIndex(lowerAfter, "offset"); offsetIdx >= 0 {
 		sortEnd = offsetIdx
 	}
-
-	// 排序字段部分
 	fieldsStr := strings.TrimSpace(after[:sortEnd])
-	// 剩余的 limit/offset 部分（保留原样拼回）
 	tail := strings.TrimSpace(after[sortEnd:])
-
-	// 解析字段列表：field1 [asc|desc], field2 [asc|desc], ...
 	if fieldsStr != "" {
 		parts := strings.Split(fieldsStr, ",")
 		for _, part := range parts {
@@ -327,19 +648,14 @@ func extractOrderBy(input string) (remaining string, sortBody []any) {
 			if len(words) == 0 {
 				continue
 			}
-			field := words[0]
+			field := trimBacktick(words[0])
 			dir := "asc"
-			if len(words) >= 2 {
-				lowerDir := strings.ToLower(words[1])
-				if lowerDir == "desc" {
-					dir = "desc"
-				}
+			if len(words) >= 2 && strings.ToLower(words[1]) == "desc" {
+				dir = "desc"
 			}
 			sortBody = append(sortBody, map[string]any{field: dir})
 		}
 	}
-
-	// 拼接：where 条件 + 保留的 limit/offset
 	remaining = strings.TrimSpace(input[:idx])
 	if tail != "" {
 		remaining = remaining + " " + tail
@@ -347,17 +663,14 @@ func extractOrderBy(input string) (remaining string, sortBody []any) {
 	return remaining, sortBody
 }
 
-// lastKeywordIndex 返回 keyword 在 s 中最后一次出现的索引，要求 keyword 前后是单词边界。
 func lastKeywordIndex(s, keyword string) int {
 	idx := strings.LastIndex(s, keyword)
 	if idx < 0 {
 		return -1
 	}
-	// 检查前面是边界（开头或空白）
 	if idx > 0 && s[idx-1] != ' ' && s[idx-1] != '\t' && s[idx-1] != '\n' && s[idx-1] != '\r' {
 		return -1
 	}
-	// 检查后面是边界（结尾或空白）
 	end := idx + len(keyword)
 	if end < len(s) && s[end] != ' ' && s[end] != '\t' && s[end] != '\n' && s[end] != '\r' {
 		return -1
@@ -365,7 +678,6 @@ func lastKeywordIndex(s, keyword string) int {
 	return idx
 }
 
-// parseInt 解析正整数，返回值和是否成功。
 func parseInt(s string) (int, bool) {
 	var n int
 	for _, c := range s {
@@ -378,16 +690,14 @@ func parseInt(s string) (int, bool) {
 }
 
 // ---------------------------------------------------------------------------
-// 公开类型（供测试使用）
+// 公开类型
 // ---------------------------------------------------------------------------
 
-// Token 表示一个词法单元。
 type Token struct {
-	Typ string // FIELD / OP / VALUE / LPAREN / RPAREN / COMMA / AND / OR
-	Val string // 原始文本
+	Typ string
+	Val string
 }
 
-// Tokenize 对 WHERE 字符串执行词法分析，返回 Token 列表。
 func Tokenize(input string) ([]Token, error) {
 	tokens, err := tokenize(input)
 	if err != nil {
@@ -398,21 +708,17 @@ func Tokenize(input string) ([]Token, error) {
 		if tok.typ == tokEOF {
 			break
 		}
-		result = append(result, Token{
-			Typ: tokTypeName(tok.typ),
-			Val: tok.value,
-		})
+		result = append(result, Token{Typ: tokTypeName(tok.typ), Val: tok.value})
 	}
 	return result, nil
 }
 
-// ParseValue 将字符串值转为合适的 Go 类型（int64 / float64 / string）。
 func ParseValue(s string) any {
 	return parseValue(s)
 }
 
 // ---------------------------------------------------------------------------
-// 词法分析 (Lexer)
+// 词法分析
 // ---------------------------------------------------------------------------
 
 type tokType int
@@ -472,7 +778,7 @@ func tokenize(input string) ([]token, error) {
 	}
 
 	readQuoted := func(quote rune) (string, error) {
-		pos++ // 跳过开引号
+		pos++
 		var buf []rune
 		for pos < size {
 			if runes[pos] == '\\' && pos+1 < size && runes[pos+1] == quote {
@@ -481,7 +787,7 @@ func tokenize(input string) ([]token, error) {
 				continue
 			}
 			if runes[pos] == quote {
-				pos++ // 跳过闭引号
+				pos++
 				return string(buf), nil
 			}
 			buf = append(buf, runes[pos])
@@ -495,7 +801,6 @@ func tokenize(input string) ([]token, error) {
 		if pos >= size {
 			break
 		}
-
 		c := runes[pos]
 
 		if c == '(' {
@@ -511,6 +816,14 @@ func tokenize(input string) ([]token, error) {
 		if c == ',' {
 			tokens = append(tokens, token{typ: tokComma, value: ","})
 			pos++
+			continue
+		}
+		if c == '`' {
+			s, err := readQuoted('`')
+			if err != nil {
+				return nil, err
+			}
+			tokens = append(tokens, token{typ: tokField, value: s})
 			continue
 		}
 		if c == '\'' || c == '"' {
@@ -565,10 +878,8 @@ func tokenize(input string) ([]token, error) {
 			}
 			continue
 		}
-
 		return nil, fmt.Errorf("位置 %d: 未预期的字符 '%c'", pos, c)
 	}
-
 	tokens = append(tokens, token{typ: tokEOF, value: ""})
 	return tokens, nil
 }
@@ -607,7 +918,7 @@ func tokTypeName(t tokType) string {
 }
 
 // ---------------------------------------------------------------------------
-// 语法解析 (Recursive Descent Parser)
+// 语法解析
 // ---------------------------------------------------------------------------
 
 type parser struct {
@@ -624,14 +935,6 @@ func (p *parser) cur() token {
 
 func (p *parser) advance() { p.pos++ }
 
-// parseWhere 解析完整 WHERE 子句。
-//
-// 语法（优先级从低到高）:
-//
-//	or_expr  := and_expr ('or' and_expr)*
-//	and_expr := unary ('and' unary)*
-//	unary    := '(' or_expr ')' | comparison
-//	comparison := field op value | field 'in' '(' value (',' value)* ')'
 func (p *parser) parseWhere() (map[string]any, error) {
 	return p.parseOr()
 }
@@ -690,13 +993,11 @@ func (p *parser) parseComparison() (map[string]any, error) {
 	}
 	field := p.cur().value
 	p.advance()
-
 	if p.cur().typ != tokOp {
 		return nil, fmt.Errorf("期望运算符，但得到 '%s'（字段: %s）", p.cur().value, field)
 	}
 	op := p.cur().value
 	p.advance()
-
 	switch op {
 	case "=":
 		val, err := p.parseValue()
@@ -761,7 +1062,6 @@ func (p *parser) parseIn(field string) (map[string]any, error) {
 		return nil, fmt.Errorf("IN 后面期望 '('，但得到 '%s'", p.cur().value)
 	}
 	p.advance()
-
 	var values []any
 	for {
 		if p.cur().typ == tokRParen {
@@ -785,10 +1085,6 @@ func (p *parser) parseIn(field string) (map[string]any, error) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// 值解析
-// ---------------------------------------------------------------------------
-
 func parseValue(s string) any {
 	var iv int64
 	if n, err := fmt.Sscanf(s, "%d", &iv); err == nil && n == 1 && fmt.Sprintf("%d", iv) == s {
@@ -800,10 +1096,6 @@ func parseValue(s string) any {
 	}
 	return s
 }
-
-// ---------------------------------------------------------------------------
-// ES Query DSL 构建
-// ---------------------------------------------------------------------------
 
 func termQuery(field string, value any) map[string]any {
 	return map[string]any{"term": map[string]any{field: value}}

@@ -632,6 +632,127 @@ func TestBuildWhere_TrailingGarbage(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// 反引号（Backtick）支持测试：MySQL 风格标识符引用
+// ---------------------------------------------------------------------------
+
+func TestTokenizeWhere_BacktickField(t *testing.T) {
+	summary := tokenizeWhereSummary(t, "`status` = 1")
+	if summary != "FIELD=status OP== VALUE=1" {
+		t.Errorf("反引号字段 → %s", summary)
+	}
+}
+
+func TestTokenizeWhere_BacktickMultipleFields(t *testing.T) {
+	summary := tokenizeWhereSummary(t, "`settlement_time` >= '2026-06-26' and `status` = 1")
+	if !strings.Contains(summary, "FIELD=settlement_time") || !strings.Contains(summary, "FIELD=status") {
+		t.Errorf("多反引号字段 → %s", summary)
+	}
+}
+
+func TestBuildWhere_BacktickFieldInWhere(t *testing.T) {
+	testQueryIs(t, "`status` = 1",
+		`{"query":{"term":{"status":1}}}`)
+}
+
+func TestBuildWhere_BacktickFieldRange(t *testing.T) {
+	testQueryIs(t, "`settlement_time` >= '2026-06-26 00:00:00' and `settlement_time` < '2026-06-27 00:00:00'",
+		`{"query":{"bool":{"must":[{"range":{"settlement_time":{"gte":"2026-06-26 00:00:00"}}},{"range":{"settlement_time":{"lt":"2026-06-27 00:00:00"}}}]}}}`)
+}
+
+func TestBuildWhere_BacktickIndexInFrom(t *testing.T) {
+	pq, err := sharkeswhere.Build("from `x_report_special_award` where status = 1")
+	if err != nil {
+		t.Fatalf("Build error: %v", err)
+	}
+	if pq.Index != "x_report_special_award" {
+		t.Errorf("反引号索引名: Index = %q, want \"x_report_special_award\"", pq.Index)
+	}
+}
+
+func TestBuildWhere_BacktickSelect(t *testing.T) {
+	testQueryIs(t, "select `name`,`age` from users where status = 1",
+		`{"_source":["name","age"],"query":{"term":{"status":1}}}`)
+}
+
+func TestBuildWhere_BacktickOrderBy(t *testing.T) {
+	testQueryIs(t, "from users where status = 1 order by `settlement_time` desc, `order_id` desc",
+		`{"query":{"term":{"status":1}},"sort":[{"settlement_time":"desc"},{"order_id":"desc"}]}`)
+}
+
+func TestBuildWhere_BacktickFullSyntax(t *testing.T) {
+	sql := "select * from `x_report_special_award` where `settlement_time` >= '2026-06-26 00:00:00' and `settlement_time` < '2026-06-27 00:00:00' order by `settlement_time` desc, `order_id` desc"
+	pq, err := sharkeswhere.Build(sql)
+	if err != nil {
+		t.Fatalf("完整反引号SQL Build失败: %v", err)
+	}
+	if pq.Index != "x_report_special_award" {
+		t.Errorf("Index = %q, want \"x_report_special_award\"", pq.Index)
+	}
+	if _, ok := pq.Body["_source"]; ok {
+		t.Error("select * 不应产生 _source")
+	}
+	sortArr, ok := pq.Body["sort"].([]any)
+	if !ok || len(sortArr) != 2 {
+		t.Fatalf("sort 应为2个元素，实际 %v", pq.Body["sort"])
+	}
+}
+
+
+// TestBuildWhere_SumAgg 测试 sum 聚合。
+func TestBuildWhere_SumAgg(t *testing.T) {
+	testQueryIs(t, "select sum(amount) as total from orders",
+		`{"aggs":{"total":{"sum":{"field":"amount"}}},"query":{"match_all":{}},"size":0}`)
+}
+
+// TestBuildWhere_AvgAgg 测试 avg 聚合。
+func TestBuildWhere_AvgAgg(t *testing.T) {
+	testQueryIs(t, "select avg(age) from users",
+		`{"aggs":{"avg_age":{"avg":{"field":"age"}}},"query":{"match_all":{}},"size":0}`)
+}
+
+// TestBuildWhere_CountAll 测试 count(*) 聚合。
+func TestBuildWhere_CountAll(t *testing.T) {
+	testQueryIs(t, "select count(*) as cnt from users",
+		`{"aggs":{"cnt":{"value_count":{"field":"_id"}}},"query":{"match_all":{}},"size":0}`)
+}
+
+// TestBuildWhere_FieldExprAdd 测试字段表达式 +。
+func TestBuildWhere_FieldExprAdd(t *testing.T) {
+	testQueryIs(t, "select price+tax as total_price from orders",
+		`{"query":{"match_all":{}},"script_fields":{"total_price":{"script":{"source":"doc['price'].value+doc['tax'].value"}}},"size":0}`)
+}
+
+
+// TestBuildWhere_FieldExprMinus 测试字段表达式 -。
+func TestBuildWhere_FieldExprMinus(t *testing.T) {
+	testQueryIs(t, "select price-discount as final_price from orders",
+		`{"query":{"match_all":{}},"script_fields":{"final_price":{"script":{"source":"doc['price'].value-doc['discount'].value"}}},"size":0}`)
+}
+
+// TestBuildWhere_FieldExprMul 测试字段表达式 *。
+func TestBuildWhere_FieldExprMul(t *testing.T) {
+	testQueryIs(t, "select price*quantity as total from orders",
+		`{"query":{"match_all":{}},"script_fields":{"total":{"script":{"source":"doc['price'].value*doc['quantity'].value"}}},"size":0}`)
+}
+
+// TestBuildWhere_FieldExprDiv 测试字段表达式 /。
+func TestBuildWhere_FieldExprDiv(t *testing.T) {
+	testQueryIs(t, "select amount/count as avg_price from orders",
+		`{"query":{"match_all":{}},"script_fields":{"avg_price":{"script":{"source":"doc['amount'].value/doc['count'].value"}}},"size":0}`)
+}
+
+// TestBuildWhere_AggExprSumPlusSum 测试聚合表达式 sum(a)+sum(b)。
+func TestBuildWhere_AggExprSumPlusSum(t *testing.T) {
+	got, err := buildWhereQueryPublic("select sum(a) + sum(b) as total from test")
+	if err != nil {
+		t.Fatalf("Build error: %v", err)
+	}
+	if !strings.Contains(got, "bucket_script") {
+		t.Errorf("应包含 bucket_script: %s", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // 集成测试：真实 ES 集群
 // ---------------------------------------------------------------------------
 
@@ -1050,7 +1171,7 @@ func TestElasticFind_Integration(t *testing.T) {
 			t.Fatalf("Find with offset exceed 失败: %v", err)
 		}
 		if len(users) != 0 {
-			t.Errorf("age>0 offset 100: 期望 0 条，实际 %d", len(users))
+			t.Errorf("age>0 offset 100: 期望 0 条,实际 %d", len(users))
 		}
 		t.Log("Find age>0 offset 100: 0 条(正确)")
 	})
