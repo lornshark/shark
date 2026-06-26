@@ -697,7 +697,6 @@ func TestBuildWhere_BacktickFullSyntax(t *testing.T) {
 	}
 }
 
-
 // TestBuildWhere_SumAgg 测试 sum 聚合。
 func TestBuildWhere_SumAgg(t *testing.T) {
 	testQueryIs(t, "select sum(amount) as total from orders",
@@ -721,7 +720,6 @@ func TestBuildWhere_FieldExprAdd(t *testing.T) {
 	testQueryIs(t, "select price+tax as total_price from orders",
 		`{"query":{"match_all":{}},"script_fields":{"total_price":{"script":{"source":"doc['price'].value+doc['tax'].value"}}},"size":0}`)
 }
-
 
 // TestBuildWhere_FieldExprMinus 测试字段表达式 -。
 func TestBuildWhere_FieldExprMinus(t *testing.T) {
@@ -749,6 +747,93 @@ func TestBuildWhere_AggExprSumPlusSum(t *testing.T) {
 	}
 	if !strings.Contains(got, "bucket_script") {
 		t.Errorf("应包含 bucket_script: %s", got)
+	}
+}
+
+// TestBuildWhere_AggExprSumMinusSum 测试聚合表达式 sum(a)-sum(b)。
+func TestBuildWhere_AggExprSumMinusSum(t *testing.T) {
+	got, err := buildWhereQueryPublic("select sum(a) - sum(b) as diff from test")
+	if err != nil {
+		t.Fatalf("Build error: %v", err)
+	}
+	if !strings.Contains(got, "bucket_script") {
+		t.Errorf("应包含 bucket_script: %s", got)
+	}
+	if !strings.Contains(got, `"diff"`) {
+		t.Errorf("应包含 diff: %s", got)
+	}
+}
+
+// TestBuildWhere_AggExprSumMinusSumParen 测试括号包裹的聚合表达式 (sum(a)-sum(b)) as c。
+// 这是用户报告的 BUG：(sum(amount) - sum(winlost_amount)) as x 被错误归类导致 x 丢失。
+func TestBuildWhere_AggExprSumMinusSumParen(t *testing.T) {
+	got, err := buildWhereQueryPublic("select (sum(a) - sum(b)) as c from test")
+	if err != nil {
+		t.Fatalf("Build error: %v", err)
+	}
+	if !strings.Contains(got, "bucket_script") {
+		t.Errorf("应包含 bucket_script: %s", got)
+	}
+	if !strings.Contains(got, `"c"`) {
+		t.Errorf("应包含 alias c: %s", got)
+	}
+}
+
+// TestBuildWhere_AggExprMixedWithParen 模拟用户真实场景：混合纯聚合 + 括号聚合表达式。
+// SELECT count(*) as count, sum(amount) as amount, sum(winlost_amount) as winlost_amount, (sum(amount) - sum(winlost_amount)) as x FROM `x_user`
+func TestBuildWhere_AggExprMixedWithParen(t *testing.T) {
+	sql := `select count(*) as count, sum(amount) as amount, sum(winlost_amount) as winlost_amount, (sum(amount) - sum(winlost_amount)) as x from x_user`
+	got, err := buildWhereQueryPublic(sql)
+	if err != nil {
+		t.Fatalf("Build error: %v", err)
+	}
+	// x 必须存在
+	if !strings.Contains(got, `"x"`) {
+		t.Errorf("应包含 alias x: %s", got)
+	}
+	// 三个独立聚合也必须存在
+	if !strings.Contains(got, `"amount"`) {
+		t.Errorf("应包含 amount: %s", got)
+	}
+	if !strings.Contains(got, `"winlost_amount"`) {
+		t.Errorf("应包含 winlost_amount: %s", got)
+	}
+	if !strings.Contains(got, `"count"`) {
+		t.Errorf("应包含 count: %s", got)
+	}
+	// count 应是 value_count
+	if !strings.Contains(got, "value_count") {
+		t.Errorf("应包含 value_count: %s", got)
+	}
+}
+
+// TestBuildWhere_AggExprMultiParenNoSpaceAs 测试多层括号 + )as 无空格格式。
+// (((sum(amount) )-( sum(winlost_amount))) )as x
+func TestBuildWhere_AggExprMultiParenNoSpaceAs(t *testing.T) {
+	got, err := buildWhereQueryPublic("select (((sum(a) )-( sum(b))) )as c from test")
+	if err != nil {
+		t.Fatalf("Build error: %v", err)
+	}
+	if !strings.Contains(got, "bucket_script") {
+		t.Errorf("应包含 bucket_script: %s", got)
+	}
+	if !strings.Contains(got, `"c"`) {
+		t.Errorf("应包含 alias c: %s", got)
+	}
+}
+
+// TestBuildWhere_AggExprMultiParenSpaceAs 测试多层括号 + ) as 有空格格式。
+// (((sum(amount) )-( sum(winlost_amount))) ) as x
+func TestBuildWhere_AggExprMultiParenSpaceAs(t *testing.T) {
+	got, err := buildWhereQueryPublic("select (((sum(a) )-( sum(b))) ) as c from test")
+	if err != nil {
+		t.Fatalf("Build error: %v", err)
+	}
+	if !strings.Contains(got, "bucket_script") {
+		t.Errorf("应包含 bucket_script: %s", got)
+	}
+	if !strings.Contains(got, `"c"`) {
+		t.Errorf("应包含 alias c: %s", got)
 	}
 }
 

@@ -411,8 +411,20 @@ func parseSelectItem(raw string) selectItem {
 	if aggItem, ok := tryParseAgg(withoutAlias, alias); ok {
 		return aggItem
 	}
-	if containsArithOps(withoutAlias) {
-		exprParts := extractAggExprParts(withoutAlias)
+
+	// 解开最外层括号，支持 (sum(a)-sum(b)) as c 这类包裹形式
+	unwrapped := withoutAlias
+	for len(unwrapped) > 0 && unwrapped[0] == '(' {
+		closeIdx := findMatchingParen(unwrapped, 0)
+		if closeIdx == len(unwrapped)-1 {
+			unwrapped = strings.TrimSpace(unwrapped[1:closeIdx])
+		} else {
+			break
+		}
+	}
+
+	if containsArithOps(unwrapped) {
+		exprParts := extractAggExprParts(unwrapped)
 		return selectItem{
 			Type: selExpr, Alias: alias, RawInput: withoutAlias, ExprParts: exprParts,
 		}
@@ -421,23 +433,36 @@ func parseSelectItem(raw string) selectItem {
 	return selectItem{Type: selPlain, Alias: alias, Field: field}
 }
 
+// findAsKeyword 查找独立关键字 "as" 的位置，返回 (idx, sepLen)。
+// "as" 被视为关键字当且仅当它的前后都是非标识符字符（或边界）。
+// 标识符字符包括：字母、数字、下划线。
 func findAsKeyword(s string) (int, int) {
 	lower := strings.ToLower(s)
 	for i := 0; i < len(lower); i++ {
-		if strings.HasPrefix(lower[i:], " as ") {
-			return i, 4
+		// 找 "as" 子串
+		if lower[i] != 'a' {
+			continue
 		}
-		if strings.HasPrefix(lower[i:], " as\t") {
-			return i, 4
+		if i+1 >= len(lower) || lower[i+1] != 's' {
+			continue
 		}
-	}
-	if strings.HasSuffix(lower, " as") {
-		return len(lower) - 3, 3
-	}
-	if strings.HasPrefix(lower, "as ") {
-		return 0, 3
+		// 前面必须是边界或非标识符字符（如空格、Tab、) 等）
+		if i > 0 && isIdentChar(lower[i-1]) {
+			continue
+		}
+		// 后面必须是边界或非标识符字符
+		after := i + 2
+		if after < len(lower) && isIdentChar(lower[after]) {
+			continue
+		}
+		return i, 2
 	}
 	return -1, 0
+}
+
+// isIdentChar 判断字符是否属于标识符（字母/数字/下划线）。
+func isIdentChar(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
 }
 
 func tryParseAgg(raw, alias string) (selectItem, bool) {
