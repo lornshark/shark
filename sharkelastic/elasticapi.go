@@ -263,6 +263,9 @@ func (s *SharkElastic) SetIndexMapping(ctx context.Context, index string, mappin
 //	}
 //	fmt.Println("搜索结果:", string(respBytes))
 func (s *SharkElastic) Search(ctx context.Context, index string, query map[string]any) ([]byte, error) {
+	if s.Client == nil {
+		return nil, fmt.Errorf("Elasticsearch 客户端未初始化")
+	}
 	if index == "" {
 		return nil, fmt.Errorf("索引名称不能为空")
 	}
@@ -303,7 +306,7 @@ func (s *SharkElastic) Search(ctx context.Context, index string, query map[strin
 }
 
 // upsertBatchSize Insert/Upsert 每批处理的文档数
-// ES 官方建议每批 1000 条左右，这里取 50% = 500，留足余量避免请求体过大
+// ES 官方建议每批 1000-5000 条左右，这里取 1000，平衡性能与请求体大小
 const upsertBatchSize = 1000
 
 // bulkResponse Bulk API 响应结构
@@ -320,6 +323,10 @@ type bulkResponse struct {
 
 // sendBulkRequest 发送单批 Bulk 请求并校验结果，返回 nil 表示全部成功
 func (s *SharkElastic) sendBulkRequest(ctx context.Context, buf *bytes.Buffer) error {
+	if s.Client == nil {
+		return fmt.Errorf("Elasticsearch 客户端未初始化")
+	}
+
 	bulkReq := esapi.BulkRequest{
 		Body: bytes.NewReader(buf.Bytes()),
 	}
@@ -359,7 +366,7 @@ func (s *SharkElastic) sendBulkRequest(ctx context.Context, buf *bytes.Buffer) e
 	return nil
 }
 
-// Insert 使用 Bulk API 批量插入文档到指定索引，内部自动分批（500条/批），外部可传入任意数量。
+// Insert 使用 Bulk API 批量插入文档到指定索引，内部自动分批（1000条/批），外部可传入任意数量。
 // 任意一批失败则立即返回错误。
 //
 // 参数:
@@ -440,7 +447,7 @@ func (s *SharkElastic) Insert(ctx context.Context, index string, idField string,
 	return nil
 }
 
-// Upsert 使用 Bulk API 批量 upsert 文档（不存在则插入，存在则局部更新），内部自动分批（500条/批），外部可传入任意数量。
+// Upsert 使用 Bulk API 批量 upsert 文档（不存在则插入，存在则局部更新），内部自动分批（1000条/批），外部可传入任意数量。
 // 任意一批失败则立即返回错误。
 //
 // 参数:
@@ -1014,6 +1021,10 @@ func (s *SharkElastic) Summary(ctx context.Context, sql string, value any) error
 }
 
 func (s *SharkElastic) SqlRaw(ctx context.Context, sql string) ([]byte, error) {
+	if strings.TrimSpace(sql) == "" {
+		return nil, fmt.Errorf("SQL 不能为空")
+	}
+
 	pq, err := sharkeswhere.Build(sql)
 	if err != nil {
 		return nil, err
