@@ -69,10 +69,9 @@ type selectItem struct {
 }
 
 type aggExprPart struct {
-	FuncName   string
-	Field      string
-	RefName    string
-	ResolvedTo string
+	FuncName string
+	Field    string
+	RefName  string
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +307,9 @@ func fieldExprToPainless(expr string) string {
 			}
 			ident := strings.TrimSpace(expr[start:i])
 			if ident != "" {
-				result.WriteString("doc['" + ident + "'].value")
+				result.WriteString("doc['")
+				result.WriteString(ident)
+				result.WriteString("'].value")
 			}
 		}
 	}
