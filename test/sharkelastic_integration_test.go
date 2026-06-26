@@ -192,6 +192,97 @@ func TestElasticDeleteBySql(t *testing.T) {
 	t.Log("DeleteBySql 测试通过")
 }
 
+// TestElasticAggExpr_Integration 集成测试聚合表达式 (sum(a)-sum(b)) as c 在真实 ES 上执行。
+// 验证 bucket_script pipeline 聚合 + 显式别名都能正确返回。
+func TestElasticAggExpr_Integration(t *testing.T) {
+	cfg := loadElasticConfig(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	es, err := sharkelastic.New(ctx, cfg)
+	if err != nil {
+		t.Fatalf("连接 Elasticsearch 失败: %v", err)
+	}
+
+	indexName := "test_shark_agg_expr"
+
+	// 1. 创建索引
+	err = es.CreateIndex(ctx, indexName, 1,
+		sharkelastic.FieldMapping{Name: "user_id", Type: sharkelastic.MappingTypeKeyword},
+		sharkelastic.FieldMapping{Name: "amount", Type: sharkelastic.MappingTypeDouble},
+		sharkelastic.FieldMapping{Name: "winlost_amount", Type: sharkelastic.MappingTypeDouble},
+	)
+	if err != nil {
+		t.Fatalf("CreateIndex 失败: %v", err)
+	}
+	defer es.Client.Indices.Delete([]string{indexName})
+
+	// 2. 插入测试数据
+	err = es.Insert(ctx, indexName, "user_id",
+		map[string]any{"user_id": "1", "amount": 100.0, "winlost_amount": 10.0},
+		map[string]any{"user_id": "2", "amount": 200.0, "winlost_amount": 20.0},
+		map[string]any{"user_id": "3", "amount": 300.0, "winlost_amount": 30.0},
+	)
+	if err != nil {
+		t.Fatalf("Insert 失败: %v", err)
+	}
+	es.Client.Indices.Refresh(es.Client.Indices.Refresh.WithIndex(indexName))
+
+	// 3. 聚合查询：sum(amount) - sum(winlost_amount) as x
+	t.Run("SumMinusSum", func(t *testing.T) {
+		sql := `select count(*) as count, sum(amount) as amount, sum(winlost_amount) as winlost_amount, (sum(amount) - sum(winlost_amount)) as x from ` + indexName
+		resp, err := es.SqlRaw(ctx, sql)
+		if err != nil {
+			t.Fatalf("SqlRaw 聚合表达式失败: %v", err)
+		}
+		body := string(resp)
+		t.Logf("BucketScript 聚合响应: %s", body)
+
+		// count 应在 aggregations.all.agg_count 或其平级
+		// 先尝试嵌套路径（filter 包裹），再尝试顶层（纯指标聚合）
+		allPath := gjson.Get(body, "aggregations.all.buckets._all")
+		if allPath.Exists() {
+			countVal := gjson.Get(body, "aggregations.all.buckets._all.count.value").Int()
+			amountVal := gjson.Get(body, "aggregations.all.buckets._all.amount.value").Float()
+			winlostVal := gjson.Get(body, "aggregations.all.buckets._all.winlost_amount.value").Float()
+			xVal := gjson.Get(body, "aggregations.all.buckets._all.x.value").Float()
+			t.Logf("count=%d amount=%.2f winlost_amount=%.2f x=%.2f", countVal, amountVal, winlostVal, xVal)
+
+			if countVal != 3 {
+				t.Errorf("count: 期望 3，实际 %d", countVal)
+			}
+			if amountVal != 600.0 {
+				t.Errorf("sum(amount): 期望 600，实际 %.2f", amountVal)
+			}
+			if winlostVal != 60.0 {
+				t.Errorf("sum(winlost_amount): 期望 60，实际 %.2f", winlostVal)
+			}
+			if xVal != 540.0 {
+				t.Errorf("x = sum(amount)-sum(winlost_amount): 期望 540，实际 %.2f", xVal)
+			}
+		} else {
+			t.Fatalf("未找到 aggregations.all.buckets._all，响应结构: %s", body)
+		}
+	})
+
+	// 4. 聚合表达式 + where 条件混合查询
+	t.Run("WithWhere", func(t *testing.T) {
+		sql := `select (sum(amount) + sum(winlost_amount)) as y from ` + indexName + ` where user_id = '1'`
+		resp, err := es.SqlRaw(ctx, sql)
+		if err != nil {
+			t.Fatalf("SqlRaw 聚合+where 失败: %v", err)
+		}
+		body := string(resp)
+		t.Logf("聚合+where 响应: %s", body)
+
+		yVal := gjson.Get(body, "aggregations.all.buckets._all.y.value").Float()
+		// user_id=1: amount=100, winlost=10 → y=110
+		if yVal != 110.0 {
+			t.Errorf("y = sum(amount)+sum(winlost) WHERE user_id='1': 期望 110，实际 %.2f", yVal)
+		}
+	})
+}
+
 func TestElasticExportBySql(t *testing.T) {
 	cfg := loadElasticConfig(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -200,8 +200,12 @@ func Build(where string) (*ParsedQuery, error) {
 }
 
 // buildAggs 构建 ES aggs DSL。
+// bucket_script 是 pipeline 聚合，必须嵌套在 bucket 聚合内。
+// 当存在 selExpr 时，用一个 filter(match_all) 包裹所有聚合。
 func buildAggs(items []selectItem) map[string]any {
 	aggs := make(map[string]any)
+	hasPipeline := false
+
 	for _, item := range items {
 		if item.Type == selAgg {
 			alias := item.Alias
@@ -213,6 +217,7 @@ func buildAggs(items []selectItem) map[string]any {
 	}
 	for _, item := range items {
 		if item.Type == selExpr && len(item.ExprParts) > 0 {
+			hasPipeline = true
 			alias := item.Alias
 			if alias == "" {
 				alias = "expr"
@@ -239,6 +244,22 @@ func buildAggs(items []selectItem) map[string]any {
 					"script":       map[string]any{"source": scriptSource, "lang": "painless"},
 				},
 			}
+		}
+	}
+
+	// bucket_script 是 pipeline 聚合，必须嵌套在 bucket 聚合内。
+	// 使用 filters 聚合（multi-bucket）包裹，兼容所有 ES 版本。
+	// 响应路径：aggregations.all.buckets._all.<alias>.value
+	if hasPipeline {
+		return map[string]any{
+			"all": map[string]any{
+				"filters": map[string]any{
+					"filters": map[string]any{
+						"_all": map[string]any{"match_all": map[string]any{}},
+					},
+				},
+				"aggs": aggs,
+			},
 		}
 	}
 	return aggs

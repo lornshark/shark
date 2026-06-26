@@ -927,6 +927,92 @@ func (s *SharkElastic) ExportBySql(ctx context.Context, sql string, name string,
 // 返回：
 //   - []byte: ES 搜索原始响应 JSON
 //   - error:  解析失败、缺少 from 子句或 ES 请求失败时返回错误
+//
+// Summary 执行聚合查询，自动提取聚合值并反序列化到 value。
+//
+// SQL 必须是聚合语句（含 sum/avg/count/min/max 或聚合表达式），
+// 方法自动解析 ES 聚合响应，将每个聚合的 .value 提取为 key-value 映射，
+// 序列化为 JSON 后再反序列化到 value 指针指向的结构体中。
+//
+// 聚合表达式（如 sum(a)-sum(b) as x）由 bucket_script 实现，
+// Summary 自动检测 filters 包裹层，无论有无 pipeline 均返回统一结果。
+//
+// value 必须是结构体指针，字段名（json tag）需与 select 别名一致。
+//
+// 使用示例：
+//
+//	type AggResult struct {
+//	    Count  int     `json:"count"`
+//	    Amount float64 `json:"amount"`
+//	    X      float64 `json:"x"`
+//	}
+//
+//	var result AggResult
+//	err := es.Summary(ctx,
+//	    "select count(*) as count, sum(amount) as amount, (sum(amount)-sum(winlost_amount)) as x from orders",
+//	    &result,
+//	)
+//	// result.Count = 3, result.Amount = 600.0, result.X = 540.0
+//
+// 参数：
+//   - ctx:   上下文
+//   - sql:   聚合 SQL 语句，必须包含 from 子句
+//   - value: 聚合结果结构体指针
+func (s *SharkElastic) Summary(ctx context.Context, sql string, value any) error {
+	if strings.TrimSpace(sql) == "" {
+		return fmt.Errorf("SQL 不能为空")
+	}
+	if value == nil {
+		return fmt.Errorf("value 不能为 nil")
+	}
+
+	pq, err := sharkeswhere.Build(sql)
+	if err != nil {
+		return fmt.Errorf("构建查询失败: %w", err)
+	}
+	if pq.Index == "" {
+		return fmt.Errorf("SQL 缺少 from 子句指定索引")
+	}
+
+	respBytes, err := s.Search(ctx, pq.Index, pq.Body)
+	if err != nil {
+		return err
+	}
+
+	// 自动检测聚合嵌套路径：
+	// 有 pipeline 时  → aggregations.all.buckets._all.<alias>.value
+	// 无 pipeline 时  → aggregations.<alias>.value
+	basePath := "aggregations"
+	if nested := gjson.GetBytes(respBytes, "aggregations.all.buckets._all"); nested.Exists() {
+		basePath = "aggregations.all.buckets._all"
+	}
+
+	// 遍历 basePath 下所有 key，提取 .value 字段构建结果 map
+	result := make(map[string]any)
+	base := gjson.GetBytes(respBytes, basePath)
+	base.ForEach(func(key, val gjson.Result) bool {
+		v := val.Get("value")
+		if v.Exists() {
+			result[key.String()] = v.Value()
+		}
+		return true
+	})
+
+	if len(result) == 0 {
+		return fmt.Errorf("ES 响应中未找到聚合结果值")
+	}
+
+	jsonBytes, err := sonic.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("序列化聚合结果失败: %w", err)
+	}
+	if err := sonic.Unmarshal(jsonBytes, value); err != nil {
+		return fmt.Errorf("反序列化聚合结果失败: %w", err)
+	}
+
+	return nil
+}
+
 func (s *SharkElastic) SqlRaw(ctx context.Context, sql string) ([]byte, error) {
 	pq, err := sharkeswhere.Build(sql)
 	if err != nil {
@@ -1044,3 +1130,4 @@ func (s *SharkElastic) Find(ctx context.Context, sql string, result any) error {
 
 	return nil
 }
+
