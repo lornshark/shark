@@ -47,6 +47,7 @@ import (
 	"errors"
 
 	"github.com/go-sql-driver/mysql"
+	"gorm.io/gorm"
 )
 
 // IsDuplicateKey 判断错误是否为 MySQL 的重复键错误（错误码 1062）。
@@ -72,4 +73,34 @@ func IsDuplicateKey(err error) bool {
 		}
 	}
 	return false
+}
+
+func ToFindSql(db *gorm.DB) string {
+	tx := db.Session(&gorm.Session{DryRun: true}).Find(nil)
+	sql := tx.Dialector.Explain(tx.Statement.SQL.String(), tx.Statement.Vars...)
+	return sql
+}
+
+func ToUpdateSql(db *gorm.DB) string {
+	tx := db.Session(&gorm.Session{DryRun: true}).Update("dummy", "dummy")
+	sql := tx.Dialector.Explain(tx.Statement.SQL.String(), tx.Statement.Vars...)
+	return sql
+}
+
+func ToDeleteSql(db *gorm.DB) string {
+	tx := db.Session(&gorm.Session{DryRun: true}).Delete(nil)
+	sql := tx.Dialector.Explain(tx.Statement.SQL.String(), tx.Statement.Vars...)
+	return sql
+}
+
+func ToInsertSql(db *gorm.DB) string {
+	tx := db.Session(&gorm.Session{DryRun: true}).Create(nil)
+	sql := tx.Dialector.Explain(tx.Statement.SQL.String(), tx.Statement.Vars...)
+	return sql
+}
+
+func ToTakeSql(db *gorm.DB) string {
+	tx := db.Session(&gorm.Session{DryRun: true}).Take(nil)
+	sql := tx.Dialector.Explain(tx.Statement.SQL.String(), tx.Statement.Vars...)
+	return sql
 }

@@ -674,3 +674,39 @@ func (t *SharkTable) Or(builder ...*sharksql.SqlBuilder) *SharkTable {
 	t.db = t.db.Where(s, args...)
 	return t
 }
+
+func (t *SharkTable) ToFindSql() string {
+	tx := t.db.Session(&gorm.Session{DryRun: true}).Find(nil)
+	sql := tx.Dialector.Explain(tx.Statement.SQL.String(), tx.Statement.Vars...)
+	return sql
+}
+
+func (t *SharkTable) ToCountSql() string {
+	tx := t.db.Session(&gorm.Session{DryRun: true}).Count(nil)
+	sql := tx.Dialector.Explain(tx.Statement.SQL.String(), tx.Statement.Vars...)
+	return sql
+}
+
+func (t *SharkTable) ToDeleteSql() string {
+	tx := t.db.Session(&gorm.Session{DryRun: true}).Delete(nil)
+	sql := tx.Dialector.Explain(tx.Statement.SQL.String(), tx.Statement.Vars...)
+	return sql
+}
+
+func (t *SharkTable) ToUpdateSql(values any) string {
+	tx := t.db.Session(&gorm.Session{DryRun: true}).Updates(values)
+	sql := tx.Dialector.Explain(tx.Statement.SQL.String(), tx.Statement.Vars...)
+	return sql
+}
+
+func (t *SharkTable) ToInsertSql(values any) string {
+	tx := t.db.Session(&gorm.Session{DryRun: true}).Create(values)
+	sql := tx.Dialector.Explain(tx.Statement.SQL.String(), tx.Statement.Vars...)
+	return sql
+}
+
+func (t *SharkTable) ToTakeSql() string {
+	tx := t.db.Session(&gorm.Session{DryRun: true}).Take(nil)
+	sql := tx.Dialector.Explain(tx.Statement.SQL.String(), tx.Statement.Vars...)
+	return sql
+}

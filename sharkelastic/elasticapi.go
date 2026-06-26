@@ -1131,3 +1131,53 @@ func (s *SharkElastic) Find(ctx context.Context, sql string, result any) error {
 	return nil
 }
 
+func (s *SharkElastic) Page(ctx context.Context, sql string, page int, pageSize int, result any) (int64, error) {
+	if strings.TrimSpace(sql) == "" {
+		return 0, fmt.Errorf("SQL 不能为空")
+	}
+	if result == nil {
+		return 0, fmt.Errorf("result 不能为 nil")
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 10
+	}
+
+	// 1. 构建查询 DSL
+	pq, err := sharkeswhere.Build(sql)
+	if err != nil {
+		return 0, fmt.Errorf("构建查询失败: %w", err)
+	}
+	if pq.Index == "" {
+		return 0, fmt.Errorf("SQL 缺少 from 子句指定索引")
+	}
+
+	// 2. 覆盖分页参数
+	pq.Body["size"] = pageSize
+	pq.Body["from"] = (page - 1) * pageSize
+
+	// 3. 执行搜索
+	respBytes, err := s.Search(ctx, pq.Index, pq.Body)
+	if err != nil {
+		return 0, err
+	}
+
+	// 4. 解析 total
+	totalResult := gjson.GetBytes(respBytes, "hits.total.value")
+	if !totalResult.Exists() {
+		return 0, fmt.Errorf("解析 ES 响应失败: 未找到 hits.total.value")
+	}
+	total := totalResult.Int()
+
+	// 5. 解析 ES 响应：提取 hits.hits[]._source 数组并反序列化到 result
+	sourcesJSON := gjson.GetBytes(respBytes, "hits.hits.#._source")
+	if sourcesJSON.Exists() {
+		if err := sonic.Unmarshal([]byte(sourcesJSON.Raw), result); err != nil {
+			return 0, fmt.Errorf("反序列化结果失败: %w", err)
+		}
+	}
+
+	return total, nil
+}
