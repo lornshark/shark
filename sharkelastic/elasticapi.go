@@ -302,10 +302,65 @@ func (s *SharkElastic) Search(ctx context.Context, index string, query map[strin
 	return respBytes, nil
 }
 
-// Insert 使用 Bulk API 一次请求批量插入文档到指定索引
-// 内部通过 gjson 从每个文档的序列化 JSON 中提取 idField 对应的值作为 _id，
-// 然后拼接 NDJSON 请求体发送 esapi.BulkRequest。
-// 任意一条文档失败则整体返回汇总错误信息（包含失败条目序号、状态码和原因），全部成功返回 nil。
+// upsertBatchSize Insert/Upsert 每批处理的文档数
+// ES 官方建议每批 1000 条左右，这里取 50% = 500，留足余量避免请求体过大
+const upsertBatchSize = 1000
+
+// bulkResponse Bulk API 响应结构
+type bulkResponse struct {
+	Errors bool `json:"errors"`
+	Items  []map[string]struct {
+		Status int `json:"status"`
+		Error  struct {
+			Type   string `json:"type"`
+			Reason string `json:"reason"`
+		} `json:"error"`
+	} `json:"items"`
+}
+
+// sendBulkRequest 发送单批 Bulk 请求并校验结果，返回 nil 表示全部成功
+func (s *SharkElastic) sendBulkRequest(ctx context.Context, buf *bytes.Buffer) error {
+	bulkReq := esapi.BulkRequest{
+		Body: bytes.NewReader(buf.Bytes()),
+	}
+	resp, err := bulkReq.Do(ctx, s.Client)
+	if err != nil {
+		return fmt.Errorf("Bulk 请求执行失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("读取 Bulk 响应失败: %w", err)
+	}
+	if resp.IsError() {
+		return fmt.Errorf("Bulk 请求失败(状态:%s): %s", resp.Status(), string(respBytes))
+	}
+
+	var br bulkResponse
+	if err := sonic.Unmarshal(respBytes, &br); err != nil {
+		return fmt.Errorf("解析 Bulk 响应失败: %w", err)
+	}
+
+	if br.Errors {
+		var errMsgs []string
+		for i, item := range br.Items {
+			for _, result := range item {
+				if result.Error.Type != "" || result.Error.Reason != "" {
+					errMsgs = append(errMsgs, fmt.Sprintf(
+						"第 %d 个文档: [%d] %s: %s", i+1, result.Status, result.Error.Type, result.Error.Reason,
+					))
+				}
+			}
+		}
+		return fmt.Errorf("Bulk 操作部分失败:\n%s", strings.Join(errMsgs, "\n"))
+	}
+
+	return nil
+}
+
+// Insert 使用 Bulk API 批量插入文档到指定索引，内部自动分批（500条/批），外部可传入任意数量。
+// 任意一批失败则立即返回错误。
 //
 // 参数:
 //   - ctx:     上下文
@@ -315,10 +370,11 @@ func (s *SharkElastic) Search(ctx context.Context, index string, query map[strin
 //
 // 使用示例:
 //
-//	// 批量插入
+//	// 批量插入 - 可传入任意数量，内部自动分批
 //	docs := []any{
 //	    map[string]any{"user_id": "1", "name": "张三", "age": 25},
 //	    map[string]any{"user_id": "2", "name": "李四", "age": 30},
+//	    // ... 可传入数千条
 //	}
 //	if err := client.Insert(ctx, "users", "user_id", docs...); err != nil {
 //	    log.Fatal(err)
@@ -334,97 +390,58 @@ func (s *SharkElastic) Insert(ctx context.Context, index string, idField string,
 		return fmt.Errorf("至少需要提供一个文档")
 	}
 
-	// 构建 Bulk 请求体的 NDJSON
-	var buf bytes.Buffer
-	for i, doc := range docs {
-		// 序列化文档为 JSON
-		docBytes, err := sonic.Marshal(doc)
-		if err != nil {
-			return fmt.Errorf("第 %d 个文档序列化失败: %w", i+1, err)
+	// 分批处理
+	for start := 0; start < len(docs); start += upsertBatchSize {
+		end := start + upsertBatchSize
+		if end > len(docs) {
+			end = len(docs)
 		}
+		batch := docs[start:end]
 
-		// 使用 gjson 从 JSON 字节中直接提取 ID 字段
-		idResult := gjson.GetBytes(docBytes, idField)
-		if !idResult.Exists() {
-			return fmt.Errorf("第 %d 个文档中未找到ID字段 '%s'", i+1, idField)
-		}
-		docID := idResult.String()
-		if docID == "" {
-			return fmt.Errorf("第 %d 个文档的ID字段 '%s' 值为空", i+1, idField)
-		}
-
-		// 写入 action 行
-		action := map[string]any{
-			"index": map[string]any{
-				"_index": index,
-				"_id":    docID,
-			},
-		}
-		actionBytes, err := sonic.Marshal(action)
-		if err != nil {
-			return fmt.Errorf("第 %d 个文档 action 序列化失败: %w", i+1, err)
-		}
-		buf.Write(actionBytes)
-		buf.WriteByte('\n')
-
-		// 写入文档行
-		buf.Write(docBytes)
-		buf.WriteByte('\n')
-	}
-
-	// 发送 Bulk 请求
-	bulkReq := esapi.BulkRequest{
-		Body: bytes.NewReader(buf.Bytes()),
-	}
-	resp, err := bulkReq.Do(ctx, s.Client)
-	if err != nil {
-		return fmt.Errorf("Bulk 请求执行失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("读取 Bulk 响应失败: %w", err)
-	}
-	if resp.IsError() {
-		return fmt.Errorf("Bulk 请求失败(状态:%s): %s", resp.Status(), string(respBytes))
-	}
-
-	// 解析响应，检查是否有失败的条目
-	var bulkResp struct {
-		Errors bool `json:"errors"`
-		Items  []map[string]struct {
-			Status int `json:"status"`
-			Error  struct {
-				Type   string `json:"type"`
-				Reason string `json:"reason"`
-			} `json:"error"`
-		} `json:"items"`
-	}
-	if err := sonic.Unmarshal(respBytes, &bulkResp); err != nil {
-		return fmt.Errorf("解析 Bulk 响应失败: %w", err)
-	}
-
-	if bulkResp.Errors {
-		var errMsgs []string
-		for i, item := range bulkResp.Items {
-			for _, result := range item {
-				if result.Error.Type != "" || result.Error.Reason != "" {
-					errMsgs = append(errMsgs, fmt.Sprintf(
-						"第 %d 个文档: [%d] %s: %s", i+1, result.Status, result.Error.Type, result.Error.Reason,
-					))
-				}
+		// 构建这一批的 NDJSON
+		var buf bytes.Buffer
+		for i, doc := range batch {
+			docBytes, err := sonic.Marshal(doc)
+			if err != nil {
+				return fmt.Errorf("第 %d 个文档序列化失败: %w", start+i+1, err)
 			}
+
+			idResult := gjson.GetBytes(docBytes, idField)
+			if !idResult.Exists() {
+				return fmt.Errorf("第 %d 个文档中未找到ID字段 '%s'", start+i+1, idField)
+			}
+			docID := idResult.String()
+			if docID == "" {
+				return fmt.Errorf("第 %d 个文档的ID字段 '%s' 值为空", start+i+1, idField)
+			}
+
+			action := map[string]any{
+				"index": map[string]any{
+					"_index": index,
+					"_id":    docID,
+				},
+			}
+			actionBytes, err := sonic.Marshal(action)
+			if err != nil {
+				return fmt.Errorf("第 %d 个文档 action 序列化失败: %w", start+i+1, err)
+			}
+			buf.Write(actionBytes)
+			buf.WriteByte('\n')
+
+			buf.Write(docBytes)
+			buf.WriteByte('\n')
 		}
-		return fmt.Errorf("Bulk 操作部分失败:\n%s", strings.Join(errMsgs, "\n"))
+
+		if err := s.sendBulkRequest(ctx, &buf); err != nil {
+			return fmt.Errorf("第 %d-%d 批插入失败: %w", start+1, end, err)
+		}
 	}
 
 	return nil
 }
 
-// Upsert 使用 Bulk API 批量 upsert 文档（不存在则插入，存在则局部更新）
-// 函数签名与 Insert 完全一致，内部使用 update action + doc_as_upsert: true，
-// 实现文档不存在时插入、存在时只更新传入字段（局部更新，不覆盖未传入字段）。
+// Upsert 使用 Bulk API 批量 upsert 文档（不存在则插入，存在则局部更新），内部自动分批（500条/批），外部可传入任意数量。
+// 任意一批失败则立即返回错误。
 //
 // 参数:
 //   - ctx:     上下文
@@ -434,10 +451,11 @@ func (s *SharkElastic) Insert(ctx context.Context, index string, idField string,
 //
 // 使用示例:
 //
-//	// 批量 upsert - 文档不存在则插入，存在则只更新传入字段
+//	// 批量 upsert - 可传入任意数量，内部自动分批
 //	docs := []any{
 //	    map[string]any{"user_id": "1", "name": "张三"},
 //	    map[string]any{"user_id": "2", "name": "李四"},
+//	    // ... 可传入数千条
 //	}
 //	if err := client.Upsert(ctx, "users", "user_id", docs...); err != nil {
 //	    log.Fatal(err)
@@ -453,94 +471,56 @@ func (s *SharkElastic) Upsert(ctx context.Context, index string, idField string,
 		return fmt.Errorf("至少需要提供一个文档")
 	}
 
-	// 构建 Bulk 请求体的 NDJSON
-	var buf bytes.Buffer
-	for i, doc := range docs {
-		// 序列化文档为 JSON
-		docBytes, err := sonic.Marshal(doc)
-		if err != nil {
-			return fmt.Errorf("第 %d 个文档序列化失败: %w", i+1, err)
+	// 分批处理
+	for start := 0; start < len(docs); start += upsertBatchSize {
+		end := start + upsertBatchSize
+		if end > len(docs) {
+			end = len(docs)
 		}
+		batch := docs[start:end]
 
-		// 使用 gjson 从 JSON 字节中直接提取 ID 字段
-		idResult := gjson.GetBytes(docBytes, idField)
-		if !idResult.Exists() {
-			return fmt.Errorf("第 %d 个文档中未找到ID字段 '%s'", i+1, idField)
-		}
-		docID := idResult.String()
-		if docID == "" {
-			return fmt.Errorf("第 %d 个文档的ID字段 '%s' 值为空", i+1, idField)
-		}
-
-		// 写入 update action 行，doc_as_upsert: true 实现 upsert
-		action := map[string]any{
-			"update": map[string]any{
-				"_index": index,
-				"_id":    docID,
-			},
-		}
-		actionBytes, err := sonic.Marshal(action)
-		if err != nil {
-			return fmt.Errorf("第 %d 个文档 action 序列化失败: %w", i+1, err)
-		}
-		buf.Write(actionBytes)
-		buf.WriteByte('\n')
-
-		// 写入 doc 包装行（局部更新，只更新传入的字段）
-		updateBody := map[string]any{"doc": doc, "doc_as_upsert": true}
-		updateBytes, err := sonic.Marshal(updateBody)
-		if err != nil {
-			return fmt.Errorf("第 %d 个文档 update body 序列化失败: %w", i+1, err)
-		}
-		buf.Write(updateBytes)
-		buf.WriteByte('\n')
-	}
-
-	// 发送 Bulk 请求
-	bulkReq := esapi.BulkRequest{
-		Body: bytes.NewReader(buf.Bytes()),
-	}
-	resp, err := bulkReq.Do(ctx, s.Client)
-	if err != nil {
-		return fmt.Errorf("Bulk 请求执行失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("读取 Bulk 响应失败: %w", err)
-	}
-	if resp.IsError() {
-		return fmt.Errorf("Bulk 请求失败(状态:%s): %s", resp.Status(), string(respBytes))
-	}
-
-	// 解析响应，检查是否有失败的条目
-	var bulkResp struct {
-		Errors bool `json:"errors"`
-		Items  []map[string]struct {
-			Status int `json:"status"`
-			Error  struct {
-				Type   string `json:"type"`
-				Reason string `json:"reason"`
-			} `json:"error"`
-		} `json:"items"`
-	}
-	if err := sonic.Unmarshal(respBytes, &bulkResp); err != nil {
-		return fmt.Errorf("解析 Bulk 响应失败: %w", err)
-	}
-
-	if bulkResp.Errors {
-		var errMsgs []string
-		for i, item := range bulkResp.Items {
-			for _, result := range item {
-				if result.Error.Type != "" || result.Error.Reason != "" {
-					errMsgs = append(errMsgs, fmt.Sprintf(
-						"第 %d 个文档: [%d] %s: %s", i+1, result.Status, result.Error.Type, result.Error.Reason,
-					))
-				}
+		// 构建这一批的 NDJSON
+		var buf bytes.Buffer
+		for i, doc := range batch {
+			docBytes, err := sonic.Marshal(doc)
+			if err != nil {
+				return fmt.Errorf("第 %d 个文档序列化失败: %w", start+i+1, err)
 			}
+
+			idResult := gjson.GetBytes(docBytes, idField)
+			if !idResult.Exists() {
+				return fmt.Errorf("第 %d 个文档中未找到ID字段 '%s'", start+i+1, idField)
+			}
+			docID := idResult.String()
+			if docID == "" {
+				return fmt.Errorf("第 %d 个文档的ID字段 '%s' 值为空", start+i+1, idField)
+			}
+
+			action := map[string]any{
+				"update": map[string]any{
+					"_index": index,
+					"_id":    docID,
+				},
+			}
+			actionBytes, err := sonic.Marshal(action)
+			if err != nil {
+				return fmt.Errorf("第 %d 个文档 action 序列化失败: %w", start+i+1, err)
+			}
+			buf.Write(actionBytes)
+			buf.WriteByte('\n')
+
+			updateBody := map[string]any{"doc": doc, "doc_as_upsert": true}
+			updateBytes, err := sonic.Marshal(updateBody)
+			if err != nil {
+				return fmt.Errorf("第 %d 个文档 update body 序列化失败: %w", start+i+1, err)
+			}
+			buf.Write(updateBytes)
+			buf.WriteByte('\n')
 		}
-		return fmt.Errorf("Bulk 操作部分失败:\n%s", strings.Join(errMsgs, "\n"))
+
+		if err := s.sendBulkRequest(ctx, &buf); err != nil {
+			return fmt.Errorf("第 %d-%d 批 upsert 失败: %w", start+1, end, err)
+		}
 	}
 
 	return nil
@@ -600,51 +580,8 @@ func (s *SharkElastic) DeleteById(ctx context.Context, index string, ids ...any)
 		buf.WriteByte('\n')
 	}
 
-	// 发送 Bulk 请求
-	bulkReq := esapi.BulkRequest{
-		Body: bytes.NewReader(buf.Bytes()),
-	}
-	resp, err := bulkReq.Do(ctx, s.Client)
-	if err != nil {
-		return fmt.Errorf("Bulk 请求执行失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("读取 Bulk 响应失败: %w", err)
-	}
-	if resp.IsError() {
-		return fmt.Errorf("Bulk 请求失败(状态:%s): %s", resp.Status(), string(respBytes))
-	}
-
-	// 解析响应，检查是否有失败的条目
-	var bulkResp struct {
-		Errors bool `json:"errors"`
-		Items  []map[string]struct {
-			Status int `json:"status"`
-			Error  struct {
-				Type   string `json:"type"`
-				Reason string `json:"reason"`
-			} `json:"error"`
-		} `json:"items"`
-	}
-	if err := sonic.Unmarshal(respBytes, &bulkResp); err != nil {
-		return fmt.Errorf("解析 Bulk 响应失败: %w", err)
-	}
-
-	if bulkResp.Errors {
-		var errMsgs []string
-		for i, item := range bulkResp.Items {
-			for _, result := range item {
-				if result.Error.Type != "" || result.Error.Reason != "" {
-					errMsgs = append(errMsgs, fmt.Sprintf(
-						"第 %d 个文档: [%d] %s: %s", i+1, result.Status, result.Error.Type, result.Error.Reason,
-					))
-				}
-			}
-		}
-		return fmt.Errorf("Bulk 操作部分失败:\n%s", strings.Join(errMsgs, "\n"))
+	if err := s.sendBulkRequest(ctx, &buf); err != nil {
+		return err
 	}
 
 	return nil
