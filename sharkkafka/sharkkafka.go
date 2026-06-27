@@ -403,7 +403,7 @@ func (s *SharkKafka) Reader(topic string, group string, cfg *ReaderConfig) *kafk
 //	})
 type BatchConfig struct {
 	ReaderConfig
-	BatchSize *int // 每批处理的最大消息数，默认 5000
+	BatchSize *int // 每批处理的最大消息数，默认 10000
 }
 
 func (s *SharkKafka) BatchConsumer(topic string, group string, cfg *BatchConfig, handler func([]kafka.Message) bool) {
