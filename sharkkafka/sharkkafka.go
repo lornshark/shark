@@ -208,24 +208,41 @@ func New(ctx context.Context, config *Config, logger *zap.Logger) (*SharkKafka, 
 //	    {Key: []byte("2"), Value: []byte(`{"data":"msg2"}`)},
 //	}
 //	writer.WriteMessages(ctx, messages...)
-func (s *SharkKafka) Writer(topic string) (*kafka.Writer, error) {
+type WriterConfig struct {
+	BatchSize    *int                // 单批最多消息数 默认 10000
+	BatchBytes   *int                // 单批最大字节数 2MB
+	BatchTimeout *time.Duration      // 批次超时时间   1s
+	RequiredAcks *kafka.RequiredAcks // 消息确认级别   RequiredAcks
+	Async        *bool               // 是否异步写入   false
+}
+
+func (s *SharkKafka) Writer(topic string, cfg *WriterConfig) (*kafka.Writer, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	// 已缓存：直接返回
 	if writer, ok := s.writers[topic]; ok {
 		return writer, nil
 	}
+	if cfg == nil {
+		cfg = &WriterConfig{
+			BatchSize:    sharkfunc.Pointer(10000),            // 单批最多 10000 条消息
+			BatchBytes:   sharkfunc.Pointer(1024 * 1024 * 2),  // 单批最多 2MB
+			BatchTimeout: sharkfunc.Pointer(time.Second),      // 批次超时 1s
+			RequiredAcks: sharkfunc.Pointer(kafka.RequireOne), // 仅等待 Leader 确认
+			Async:        sharkfunc.Pointer(false),            // 同步写入，保证消息不丢失
+		}
+	}
 	// 未缓存：创建新的 Writer
 	writerConfig := kafka.WriterConfig{
 		Brokers:      s.config.Host,
 		Topic:        topic,
-		Balancer:     &kafka.Hash{}, // 按 Key 哈希分区，保证相同 Key 进入同一分区
 		Dialer:       s.dialer,
-		BatchSize:    1000,                   // 单批最多 1000 条消息
-		BatchBytes:   1024 * 1024,            // 单批最多 1MB
-		BatchTimeout: 100 * time.Millisecond, // 批次超时 100ms
-		RequiredAcks: int(kafka.RequireOne),  // 仅等待 Leader 确认
-		Async:        false,                  // 同步写入，保证消息不丢失
+		Balancer:     &kafka.Hash{},          // 按 Key 哈希分区，保证相同 Key 进入同一分区
+		BatchSize:    *cfg.BatchSize,         // 单批最多 10000 条消息
+		BatchBytes:   *cfg.BatchBytes,        // 单批最多 2MB
+		BatchTimeout: *cfg.BatchTimeout,      // 批次超时 1s
+		RequiredAcks: int(*cfg.RequiredAcks), // 仅等待 Leader 确认
+		Async:        *cfg.Async,             // 同步写入，保证消息不丢失
 	}
 	writer := kafka.NewWriter(writerConfig)
 	s.writers[topic] = writer
@@ -312,15 +329,28 @@ func (s *SharkKafka) Close() error {
 //	    }
 //	    fmt.Printf("收到消息: key=%s value=%s\n", string(msg.Key), string(msg.Value))
 //	}
-func (s *SharkKafka) Reader(topic string, group string) *kafka.Reader {
+type ReaderConfig struct {
+	MinBytes    *int   // 单次拉取的最小字节数（低延迟）默认 1
+	MaxBytes    *int   // 单次拉取的最大字节数（高吞吐）默认 10MB
+	StartOffset *int64 // 消费起始偏移量（FirstOffset / LastOffset / 指定偏移量）
+}
+
+func (s *SharkKafka) Reader(topic string, group string, cfg *ReaderConfig) *kafka.Reader {
+	if cfg == nil {
+		cfg = &ReaderConfig{
+			MinBytes:    sharkfunc.Pointer(1),                 // 有数据就返回（低延迟）
+			MaxBytes:    sharkfunc.Pointer(10 * 1024 * 1024),  // 单次最多返回 10MB
+			StartOffset: sharkfunc.Pointer(kafka.FirstOffset), // 从最早的消息开始消费
+		}
+	}
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:     s.config.Host,
 		Topic:       topic,
 		GroupID:     group,
-		MinBytes:    1,                // 有数据就返回（低延迟）
-		MaxBytes:    10 * 1024 * 1024, // 单次最多返回 10MB
+		MinBytes:    *cfg.MinBytes, // 有数据就返回（低延迟）
+		MaxBytes:    *cfg.MaxBytes, // 单次最多返回 10MB
 		Dialer:      s.dialer,
-		StartOffset: kafka.FirstOffset, // 从最早的消息开始消费
+		StartOffset: *cfg.StartOffset, // 从最早的消息开始消费
 	})
 	return reader
 }
@@ -371,9 +401,24 @@ func (s *SharkKafka) Reader(topic string, group string) *kafka.Reader {
 //	    }
 //	    return true
 //	})
-func (s *SharkKafka) BatchConsumer(topic string, group string, handler func([]kafka.Message) bool) {
-	reader := s.Reader(topic, group)
-	batchSize := 5000                                // 每批最多处理 5000 条消息
+type BatchConfig struct {
+	ReaderConfig
+	BatchSize *int // 每批处理的最大消息数，默认 5000
+}
+
+func (s *SharkKafka) BatchConsumer(topic string, group string, cfg *BatchConfig, handler func([]kafka.Message) bool) {
+	if cfg == nil {
+		cfg = &BatchConfig{
+			ReaderConfig: ReaderConfig{
+				MinBytes:    sharkfunc.Pointer(1),                 // 有数据就返回（低延迟）
+				MaxBytes:    sharkfunc.Pointer(10 * 1024 * 1024),  // 单次最多返回 10MB
+				StartOffset: sharkfunc.Pointer(kafka.FirstOffset), // 从最早的消息开始消费
+			},
+			BatchSize: sharkfunc.Pointer(10000), // 每批处理的最大消息数，默认  10000
+		}
+	}
+	reader := s.Reader(topic, group, &cfg.ReaderConfig)
+	batchSize := *cfg.BatchSize
 	channel := make(chan kafka.Message, batchSize*2) // 带缓冲 channel，容量为 batchSize 的 2 倍
 	defer func() {
 		close(channel) // 关闭 channel，通知消费协程退出

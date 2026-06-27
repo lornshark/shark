@@ -376,8 +376,9 @@ func (c *Client) handle_channel(channel <-chan amqp.Delivery, handler func(amqp.
 //   - exchange: 交换机名称
 //   - queue: 队列名称
 //   - key: 路由键
+//   - batchSize: 每批处理的最大消息数
 //   - handler: 批量消息处理函数，返回 true 表示整批 ack
-func (c *Client) BatchConsume(exchange string, queue string, key string, handler func([]amqp.Delivery) bool) {
+func (c *Client) BatchConsume(exchange string, queue string, key string, batchSize int, handler func([]amqp.Delivery) bool) {
 	go func() {
 		for {
 			if c.ctx.Err() != nil {
@@ -393,14 +394,14 @@ func (c *Client) BatchConsume(exchange string, queue string, key string, handler
 				time.Sleep(time.Second)
 				continue
 			}
-			channel.Qos(10000, 0, false)
+			channel.Qos(batchSize*2, 0, false)
 			channel.ExchangeDeclare(exchange, "topic", true, false, false, false, nil)
 			channel.QueueDeclare(queue, true, false, false, false, nil)
 			channel.QueueBind(queue, key, exchange, false, nil)
 			dataChannel, err := channel.Consume(queue, fmt.Sprintf("%v.%v", c.name, c.id),
 				false, false, false, false, nil,
 			)
-			drainChannel := make(chan amqp.Delivery, 10000)
+			drainChannel := make(chan amqp.Delivery, batchSize*2)
 			// 将 dataChannel 的消息转发到 drainChannel，避免阻塞
 			go func() {
 				for msg := range dataChannel {

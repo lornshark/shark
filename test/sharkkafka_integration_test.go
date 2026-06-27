@@ -35,7 +35,7 @@ func TestKafkaWriter(t *testing.T) {
 	}
 	defer sk.Close()
 
-	writer, err := sk.Writer("test-shark-topic")
+	writer, err := sk.Writer("test-shark-topic", nil)
 	if err != nil {
 		t.Fatalf("获取 Writer 失败: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestKafkaWriter(t *testing.T) {
 	t.Log("消息发送成功")
 
 	// 相同 topic 再次获取应该复用
-	w2, _ := sk.Writer("test-shark-topic")
+	w2, _ := sk.Writer("test-shark-topic", nil)
 	if w2 != writer {
 		t.Error("同一 topic 应返回缓存的 Writer")
 	}
@@ -74,13 +74,13 @@ func TestKafkaReader(t *testing.T) {
 
 	// 先发送一条消息
 	topicName := "test-shark-reader"
-	writer, _ := sk.Writer(topicName)
+	writer, _ := sk.Writer(topicName, nil)
 	writer.WriteMessages(ctx, kafka.Message{Key: []byte("r1"), Value: []byte("reader-test")})
 	time.Sleep(500 * time.Millisecond)
 	sk.CloseWriter(topicName)
 
 	// 创建 Reader
-	reader := sk.Reader(topicName, "test-shark-group")
+	reader := sk.Reader(topicName, "test-shark-group", nil)
 	defer reader.Close()
 	t.Log("Reader 创建成功")
 }
@@ -98,7 +98,7 @@ func TestKafkaBatchConsumer(t *testing.T) {
 
 	topicName := "test-shark-batch"
 	// 先发送几条消息
-	writer, _ := sk.Writer(topicName)
+	writer, _ := sk.Writer(topicName, nil)
 	writer.WriteMessages(ctx,
 		kafka.Message{Key: []byte("k1"), Value: []byte("msg1")},
 		kafka.Message{Key: []byte("k2"), Value: []byte("msg2")},
@@ -112,7 +112,7 @@ func TestKafkaBatchConsumer(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		sk.BatchConsumer(topicName, "test-shark-batch-group", func(msgs []kafka.Message) bool {
+		sk.BatchConsumer(topicName, "test-shark-batch-group", nil, func(msgs []kafka.Message) bool {
 			t.Logf("批量收到 %d 条消息", len(msgs))
 			received <- struct{}{}
 			return false // 收到消息后立即停止

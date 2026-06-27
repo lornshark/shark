@@ -98,7 +98,7 @@ func TestRabbitmqBatchConsume(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	received := make(chan int, 1)
-	client.BatchConsume(exchange, queue, key, func(msgs []amqp.Delivery) bool {
+	client.BatchConsume(exchange, queue, key, 1000, func(msgs []amqp.Delivery) bool {
 		count := len(msgs)
 		t.Logf("批量收到 %d 条消息", count)
 		received <- count
