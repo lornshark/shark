@@ -85,8 +85,8 @@ func TestSnowflakeMonotonic(t *testing.T) {
 
 func BenchmarkSnowflakeGenerate(b *testing.B) {
 	sf := sharksnowflake.NewSnowflake()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		sf.Generate()
 	}
 }
