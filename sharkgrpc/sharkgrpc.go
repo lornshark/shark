@@ -159,7 +159,6 @@ func New(ctx context.Context, project string, redis RpcRedis, logger *zap.Logger
 	}
 	if port > 0 {
 		s.Server = grpc.NewServer()
-		go s.run()
 	}
 	return s
 }
@@ -169,16 +168,17 @@ func New(ctx context.Context, project string, redis RpcRedis, logger *zap.Logger
 // 延迟 1 秒启动以确保其他初始化完成。
 // 在指定的端口上创建 TCP 监听，并启动 gRPC Server。
 // serve 失败时记录错误日志（调用方需通过其他手段感知服务不可用）。
-func (s *RpcServer) run() {
-	time.Sleep(time.Second)
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%v", s.port))
-	if err != nil {
-		s.logger.Error("failed to listen", zap.Error(err))
-	}
-	err = s.Server.Serve(listener)
-	if err != nil {
-		s.logger.Error("failed to serve", zap.Error(err))
-	}
+func (s *RpcServer) Run() {
+	go func() {
+		listener, err := net.Listen("tcp", fmt.Sprintf(":%v", s.port))
+		if err != nil {
+			s.logger.Error("failed to listen", zap.Error(err))
+		}
+		err = s.Server.Serve(listener)
+		if err != nil {
+			s.logger.Error("failed to serve", zap.Error(err))
+		}
+	}()
 }
 
 // updateResolver 是后台地址更新协程。

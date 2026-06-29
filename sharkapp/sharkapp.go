@@ -470,7 +470,9 @@ func (a *App) Hunt(components ...AppComponent) {
 	for _, c := range components {
 		c.Start()
 	}
-
+	if a.Grpc != nil {
+		a.Grpc.Run()
+	}
 	// 打印启动横幅
 	a.banner()
 
