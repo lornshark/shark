@@ -232,6 +232,21 @@ func (s *SharkKafka) Writer(topic string, cfg *WriterConfig) (*kafka.Writer, err
 			Async:        sharkfunc.Pointer(false),            // 同步写入，保证消息不丢失
 		}
 	}
+	if cfg.BatchSize == nil {
+		cfg.BatchSize = sharkfunc.Pointer(10000)
+	}
+	if cfg.BatchBytes == nil {
+		cfg.BatchBytes = sharkfunc.Pointer(1024 * 1024 * 2)
+	}
+	if cfg.BatchTimeout == nil {
+		cfg.BatchTimeout = sharkfunc.Pointer(time.Second)
+	}
+	if cfg.RequiredAcks == nil {
+		cfg.RequiredAcks = sharkfunc.Pointer(kafka.RequireOne)
+	}
+	if cfg.Async == nil {
+		cfg.Async = sharkfunc.Pointer(false)
+	}
 	// 未缓存：创建新的 Writer
 	writerConfig := kafka.WriterConfig{
 		Brokers:      s.config.Host,
@@ -343,6 +358,15 @@ func (s *SharkKafka) Reader(topic string, group string, cfg *ReaderConfig) *kafk
 			StartOffset: sharkfunc.Pointer(kafka.FirstOffset), // 从最早的消息开始消费
 		}
 	}
+	if cfg.MinBytes == nil {
+		cfg.MinBytes = sharkfunc.Pointer(1)
+	}
+	if cfg.MaxBytes == nil {
+		cfg.MaxBytes = sharkfunc.Pointer(10 * 1024 * 1024)
+	}
+	if cfg.StartOffset == nil {
+		cfg.StartOffset = sharkfunc.Pointer(kafka.FirstOffset)
+	}
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:     s.config.Host,
 		Topic:       topic,
@@ -416,6 +440,18 @@ func (s *SharkKafka) BatchConsumer(topic string, group string, cfg *BatchConfig,
 			},
 			BatchSize: sharkfunc.Pointer(10000), // 每批处理的最大消息数，默认  10000
 		}
+	}
+	if cfg.MinBytes == nil {
+		cfg.MinBytes = sharkfunc.Pointer(1)
+	}
+	if cfg.MaxBytes == nil {
+		cfg.MaxBytes = sharkfunc.Pointer(10 * 1024 * 1024)
+	}
+	if cfg.StartOffset == nil {
+		cfg.StartOffset = sharkfunc.Pointer(kafka.FirstOffset)
+	}
+	if cfg.BatchSize == nil {
+		cfg.BatchSize = sharkfunc.Pointer(10000)
 	}
 	reader := s.Reader(topic, group, &cfg.ReaderConfig)
 	batchSize := *cfg.BatchSize
