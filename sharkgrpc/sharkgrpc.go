@@ -169,6 +169,9 @@ func New(ctx context.Context, project string, redis RpcRedis, logger *zap.Logger
 // 在指定的端口上创建 TCP 监听，并启动 gRPC Server。
 // serve 失败时记录错误日志（调用方需通过其他手段感知服务不可用）。
 func (s *RpcServer) Run() {
+	if s.port <= 0 {
+		return
+	}
 	go func() {
 		listener, err := net.Listen("tcp", fmt.Sprintf(":%v", s.port))
 		if err != nil {
