@@ -513,6 +513,7 @@ func (o *Options) parseKafka(v *viper.Viper) {
 		Host:     hosts,
 		User:     strings.TrimSpace(v.GetString("kafka.user")),
 		Password: o.decryptPassword(strings.TrimSpace(v.GetString("kafka.password"))),
+		TLS:      v.GetBool("kafka.tls"),
 	}
 }
 
