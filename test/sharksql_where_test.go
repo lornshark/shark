@@ -322,7 +322,7 @@ func TestToUpdate_Basic(t *testing.T) {
 		Bio  *string `json:"bio"`
 	}
 	req := UpdateReq{Name: strPtr("张三"), Age: intPtr(25)}
-	data := sharksql.ToUpdate(req)
+	data := sharksql.ToUpdateData(req)
 	if data["name"] != "张三" {
 		t.Errorf("ToUpdate name=%v, want 张三", data["name"])
 	}

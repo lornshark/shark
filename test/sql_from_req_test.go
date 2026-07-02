@@ -247,7 +247,7 @@ func TestToUpdatePtr(t *testing.T) {
 	n := "张三"
 	a := 25
 	req := Req{Name: &n, Age: &a}
-	data := sharksql.ToUpdate(req)
+	data := sharksql.ToUpdateData(req)
 	if len(data) != 2 {
 		t.Fatalf("len = %d", len(data))
 	}
@@ -263,7 +263,7 @@ func TestToUpdateNil(t *testing.T) {
 	}
 	n := "张三"
 	req := Req{Name: &n, Age: nil}
-	data := sharksql.ToUpdate(req)
+	data := sharksql.ToUpdateData(req)
 	if len(data) != 1 || data["name"] != "张三" {
 		t.Errorf("data = %v", data)
 	}
@@ -274,7 +274,7 @@ func TestToUpdateAllNil(t *testing.T) {
 		Name *string `json:"name"`
 	}
 	req := Req{}
-	data := sharksql.ToUpdate(req)
+	data := sharksql.ToUpdateData(req)
 	if data != nil {
 		t.Errorf("data = %v", data)
 	}
@@ -286,7 +286,7 @@ func TestToUpdateSlicePtrJSON(t *testing.T) {
 	}
 	ids := []int{1, 2, 3}
 	req := Req{Ids: &ids}
-	data := sharksql.ToUpdate(req)
+	data := sharksql.ToUpdateData(req)
 	if len(data) != 1 {
 		t.Fatalf("len = %d", len(data))
 	}
@@ -309,7 +309,7 @@ func TestToUpdateStructPtrJSON(t *testing.T) {
 		Meta *Meta `json:"meta"`
 	}
 	req := Req{Meta: &Meta{V: 1}}
-	data := sharksql.ToUpdate(req)
+	data := sharksql.ToUpdateData(req)
 	s, ok := data["meta"].(string)
 	if !ok {
 		t.Fatalf("meta not string: %T", data["meta"])
@@ -327,7 +327,7 @@ func TestToUpdateDecimal(t *testing.T) {
 	}
 	d := decimal.NewFromFloat(19.99)
 	req := Req{Price: &d}
-	data := sharksql.ToUpdate(req)
+	data := sharksql.ToUpdateData(req)
 	dd, ok := data["price"].(decimal.Decimal)
 	if !ok || !dd.Equals(d) {
 		t.Errorf("price = %v", data["price"])
@@ -341,7 +341,7 @@ func TestToUpdateNonPtrIgnored(t *testing.T) {
 	}
 	n := "test"
 	req := Req{Name: &n, Age: 18}
-	data := sharksql.ToUpdate(req)
+	data := sharksql.ToUpdateData(req)
 	if len(data) != 1 || data["name"] != "test" {
 		t.Errorf("data = %v", data)
 	}
@@ -355,7 +355,7 @@ func TestToUpdateNoJsonTagIgnored(t *testing.T) {
 	n := "hello"
 	ig := "ignored"
 	req := Req{Name: &n, Ignore: &ig}
-	data := sharksql.ToUpdate(req)
+	data := sharksql.ToUpdateData(req)
 	if len(data) != 1 || data["name"] != "hello" {
 		t.Errorf("data = %v", data)
 	}

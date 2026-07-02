@@ -307,7 +307,7 @@ func indexIgnoreCase(s string, substr string) int {
 //	    Meta   *map[string]any  `json:"meta"`  // 复合类型 → `{"k":"v"}`
 //	    Ignore int             `json:"ignore"` // 非指针，忽略
 //	}
-func ToUpdate(req any) map[string]any {
+func ToUpdateData(req any) map[string]any {
 	v := reflect.ValueOf(req)
 	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
