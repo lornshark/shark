@@ -178,13 +178,13 @@ func New(options *Options) (*App, error) {
 
 	// ---- Kafka 初始化 ----
 	if options.kafka != nil {
-		app.Logger.Info("正在连接kafka", zap.Strings("host", options.kafka.Host))
+		app.Logger.Info("正在连接kafka", zap.Strings("host", options.kafka.Host), zap.String("user", options.kafka.User))
 		kafka, err := sharkkafka.New(app.Context, options.kafka, app.Logger)
 		if err != nil {
 			return nil, err
 		}
 		app.Kafka = kafka
-		app.Logger.Info("连接kafka成功", zap.Strings("host", options.kafka.Host))
+		app.Logger.Info("连接kafka成功", zap.Strings("host", options.kafka.Host), zap.String("user", options.kafka.User))
 
 		// dev/test 环境自动将日志写入 Kafka，方便开发调试
 		// 生产环境由运维统一收集日志，不需要应用层自行写入
@@ -255,25 +255,25 @@ func New(options *Options) (*App, error) {
 
 	// ---- MySQL 初始化 ----
 	if options.db != nil {
-		app.Logger.Info("正在连接db", zap.String("host", options.db.Host), zap.String("database", options.db.Database))
+		app.Logger.Info("正在连接db", zap.String("host", options.db.Host), zap.String("database", options.db.Database), zap.String("user", options.db.User))
 		db, err := sharkdb.NewDb(app.Context, app.Logger, options.db)
 		if err != nil {
 			app.Logger.Error("连接db失败", zap.String("host", options.db.Host), zap.String("database", options.db.Database), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接db成功", zap.String("host", options.db.Host), zap.String("database", options.db.Database))
+		app.Logger.Info("连接db成功", zap.String("host", options.db.Host), zap.String("database", options.db.Database), zap.String("user", options.db.User))
 		app.Db = db
 	}
 
 	// ---- Elasticsearch 初始化 ----
 	if options.elastic != nil {
-		app.Logger.Info("正在连接elastic", zap.Strings("host", options.elastic.Host))
+		app.Logger.Info("正在连接elastic", zap.Strings("host", options.elastic.Host), zap.String("user", options.elastic.User))
 		elastic, err := sharkelastic.New(app.Context, options.elastic)
 		if err != nil {
 			app.Logger.Error("连接elastic失败", zap.Strings("host", options.elastic.Host), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接elastic成功", zap.Strings("host", options.elastic.Host))
+		app.Logger.Info("连接elastic成功", zap.Strings("host", options.elastic.Host), zap.String("user", options.elastic.User))
 		app.Elastic = elastic
 	}
 
@@ -281,7 +281,7 @@ func New(options *Options) (*App, error) {
 	// 使用服务名称的 CRC16 哈希值来选择连接的 broker 节点，
 	// 实现多节点间的负载均衡分布
 	if options.rabbitmq != nil {
-		app.Logger.Info("正在连接rabbitmq", zap.Strings("host", options.rabbitmq.Host))
+		app.Logger.Info("正在连接rabbitmq", zap.Strings("host", options.rabbitmq.Host), zap.String("user", options.rabbitmq.User))
 		mq, err := sharkrabbitmq.New(app.Context, app.Logger, app.Wg, options.rabbitmq, app.Name, app.Id)
 		if err != nil {
 			app.Logger.Error("连接rabbitmq失败", zap.Strings("host", options.rabbitmq.Host), zap.Error(err))
@@ -290,56 +290,56 @@ func New(options *Options) (*App, error) {
 		// CRC16 哈希取模选择 broker 节点
 		if len(options.rabbitmq.Host) > 0 {
 			index := crc16.Checksum([]byte(app.Name), crc16.IBMTable) % uint16(len(options.rabbitmq.Host))
-			app.Logger.Info("连接rabbitmq成功", zap.String("host", options.rabbitmq.Host[index]))
+			app.Logger.Info("连接rabbitmq成功", zap.String("host", options.rabbitmq.Host[index]), zap.String("user", options.rabbitmq.User))
 		}
 		app.Rabbitmq = mq
 	}
 
 	// ---- RisingWave 初始化 ----
 	if options.risingwave != nil {
-		app.Logger.Info("正在连接risingwave", zap.String("host", options.risingwave.Host), zap.String("database", options.risingwave.Database))
+		app.Logger.Info("正在连接risingwave", zap.String("host", options.risingwave.Host), zap.String("database", options.risingwave.Database), zap.String("user", options.risingwave.User))
 		rw, err := sharkrisingwave.New(app.Context, app.Logger, options.risingwave)
 		if err != nil {
 			app.Logger.Error("连接risingwave失败", zap.String("host", options.risingwave.Host), zap.String("database", options.risingwave.Database), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接risingwave成功", zap.String("host", options.risingwave.Host), zap.String("database", options.risingwave.Database))
+		app.Logger.Info("连接risingwave成功", zap.String("host", options.risingwave.Host), zap.String("database", options.risingwave.Database), zap.String("user", options.risingwave.User))
 		app.RisingWave = rw
 	}
 
 	// ---- etcd 初始化 ----
 	if options.etcd != nil {
-		app.Logger.Info("正在连接etcd", zap.Strings("host", options.etcd.Host))
+		app.Logger.Info("正在连接etcd", zap.Strings("host", options.etcd.Host), zap.String("user", options.etcd.User))
 		etcd, err := sharketcd.New(app.Context, options.etcd)
 		if err != nil {
 			app.Logger.Error("连接etcd失败", zap.Strings("host", options.etcd.Host), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接etcd成功", zap.Strings("host", options.etcd.Host))
+		app.Logger.Info("连接etcd成功", zap.Strings("host", options.etcd.Host), zap.String("user", options.etcd.User))
 		app.Etcd = etcd
 	}
 
 	// ---- MongoDB 初始化 ----
 	if options.mongodb != nil {
-		app.Logger.Info("正在连接mongodb", zap.String("host", options.mongodb.Host))
+		app.Logger.Info("正在连接mongodb", zap.String("host", options.mongodb.Host), zap.String("user", options.mongodb.User))
 		mongodb, err := sharkmongodb.New(app.Context, options.mongodb)
 		if err != nil {
 			app.Logger.Error("连接mongodb失败", zap.String("host", options.mongodb.Host), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接mongodb成功", zap.String("host", options.mongodb.Host))
+		app.Logger.Info("连接mongodb成功", zap.String("host", options.mongodb.Host), zap.String("user", options.mongodb.User))
 		app.Mongodb = mongodb
 	}
 
 	// ---- MinIO 初始化 ----
 	if options.minio != nil {
-		app.Logger.Info("正在连接minio", zap.String("host", options.minio.Host))
+		app.Logger.Info("正在连接minio", zap.String("host", options.minio.Host), zap.String("user", options.minio.User))
 		client, err := sharkminio.New(app.Context, options.minio)
 		if err != nil {
 			app.Logger.Error("连接minio失败", zap.String("host", options.minio.Host), zap.Error(err))
 			return nil, err
 		}
-		app.Logger.Info("连接minio成功", zap.String("host", options.minio.Host))
+		app.Logger.Info("连接minio成功", zap.String("host", options.minio.Host), zap.String("user", options.minio.User))
 		app.Minio = client
 	}
 
