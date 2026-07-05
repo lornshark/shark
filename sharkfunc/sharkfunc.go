@@ -270,3 +270,51 @@ func Recover(logger *zap.Logger, name string) {
 func Pointer[T any](v T) *T {
 	return &v
 }
+
+func ToRFC3330(s *string) *string {
+	if s == nil || *s == "" {
+		return nil
+	}
+	t, err := time.Parse(time.DateTime, *s)
+	if err != nil {
+		return nil
+	}
+	str := t.Format(time.RFC3339)
+	return &str
+}
+
+func ToRFC3330WithLocation(s *string, loc *time.Location) *string {
+	if s == nil || *s == "" {
+		return nil
+	}
+	t, err := time.ParseInLocation(time.DateTime, *s, loc)
+	if err != nil {
+		return nil
+	}
+	str := t.Format(time.RFC3339)
+	return &str
+}
+
+func ToRFC3330WithFormat(s *string, format string) *string {
+	if s == nil || *s == "" {
+		return nil
+	}
+	t, err := time.Parse(format, *s)
+	if err != nil {
+		return nil
+	}
+	str := t.Format(time.RFC3339)
+	return &str
+}
+
+func ToRFC3330WithFormatAndLocation(s *string, format string, loc *time.Location) *string {
+	if s == nil || *s == "" {
+		return nil
+	}
+	t, err := time.ParseInLocation(format, *s, loc)
+	if err != nil {
+		return nil
+	}
+	str := t.Format(time.RFC3339)
+	return &str
+}
