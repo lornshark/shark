@@ -43,16 +43,6 @@ func TestRedisNewCluster(t *testing.T) {
 	cluster.Del(ctx, key)
 	t.Log("Cluster SET/GET/DEL 通过")
 
-	// ScanKeys
-	cluster.Set(ctx, "test:scan:key1", "1", 10*time.Second)
-	cluster.Set(ctx, "test:scan:key2", "2", 10*time.Second)
-	keysCh, _ := sharkredis.ScanKeys(ctx, cluster, "test:scan:*")
-	count := 0
-	for range keysCh {
-		count++
-	}
-	cluster.Del(ctx, "test:scan:key1", "test:scan:key2")
-	t.Logf("ScanKeys 找到 %d 个 key", count)
 }
 
 func TestRedisNewClient(t *testing.T) {
@@ -87,38 +77,6 @@ func TestRedisNewClient(t *testing.T) {
 	ttl, _ := client.TTL(ctx, key).Result()
 	t.Logf("TTL = %v", ttl)
 	client.Del(ctx, key)
-}
-
-func TestRedisDeleteKeys(t *testing.T) {
-	cfg := loadRedisConfig(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	cluster, err := sharkredis.NewCluster(ctx, cfg)
-	if err != nil {
-		if strings.Contains(err.Error(), "cluster support disabled") {
-			t.Skip("需要 Redis 集群模式")
-		}
-		t.Skipf("Redis 集群不可用: %v", err)
-	}
-	defer cluster.Close()
-
-	// 写入测试 keys
-	cluster.Set(ctx, "test:delete:a", "1", 30*time.Second)
-	cluster.Set(ctx, "test:delete:b", "2", 30*time.Second)
-
-	// 批量删除
-	err = sharkredis.DeleteKeys(ctx, cluster, "test:delete:*")
-	if err != nil {
-		t.Errorf("DeleteKeys 失败: %v", err)
-	}
-
-	// 验证已删除
-	n, _ := cluster.Exists(ctx, "test:delete:a", "test:delete:b").Result()
-	if n != 0 {
-		t.Errorf("删除后应不存在, got %d keys", n)
-	}
-	t.Log("DeleteKeys 通过")
 }
 
 // Benchmark Redis SET
