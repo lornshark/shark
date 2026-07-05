@@ -271,7 +271,7 @@ func Pointer[T any](v T) *T {
 	return &v
 }
 
-func ToRFC3330(s *string) *string {
+func FormatToRFC3330(s *string) *string {
 	if s == nil || *s == "" {
 		return nil
 	}
@@ -283,7 +283,7 @@ func ToRFC3330(s *string) *string {
 	return &str
 }
 
-func ToRFC3330WithLocation(s *string, loc *time.Location) *string {
+func FormatRFC3330WithLocation(s *string, loc *time.Location) *string {
 	if s == nil || *s == "" {
 		return nil
 	}
@@ -295,7 +295,7 @@ func ToRFC3330WithLocation(s *string, loc *time.Location) *string {
 	return &str
 }
 
-func ToRFC3330WithFormat(s *string, format string) *string {
+func FormatRFC3330WithFormat(s *string, format string) *string {
 	if s == nil || *s == "" {
 		return nil
 	}
@@ -307,7 +307,7 @@ func ToRFC3330WithFormat(s *string, format string) *string {
 	return &str
 }
 
-func ToRFC3330WithFormatAndLocation(s *string, format string, loc *time.Location) *string {
+func FormatToRFC3330WithFormatAndLocation(s *string, format string, loc *time.Location) *string {
 	if s == nil || *s == "" {
 		return nil
 	}
