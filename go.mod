@@ -22,6 +22,7 @@ require (
 	github.com/swaggo/files v1.0.1
 	github.com/swaggo/gin-swagger v1.6.1
 	github.com/tidwall/gjson v1.19.0
+	github.com/tidwall/sjson v1.2.5
 	github.com/xuri/excelize/v2 v2.10.1
 	go.etcd.io/etcd/client/v3 v3.6.12
 	go.mongodb.org/mongo-driver/v2 v2.5.0

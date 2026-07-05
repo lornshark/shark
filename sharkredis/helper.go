@@ -3,10 +3,15 @@ package sharkredis
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"reflect"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/tidwall/gjson"
 )
 
 // Helper 是对 go-redis 单节点客户端（*redis.Client）和集群客户端（*redis.ClusterClient）的统一封装。
@@ -258,14 +263,14 @@ func (h *Helper) GetObject(ctx context.Context, key string, value any) *redis.St
 //
 // 返回 *redis.IntCmd，Val() 为写入的字段数，Err() 为错误。
 func (h *Helper) HSetObject(ctx context.Context, key string, value any) *redis.IntCmd {
-	var mvalue map[string]any
+	var mvalue map[string]string = make(map[string]string)
 	bytes, err := json.Marshal(value)
 	if err != nil {
 		return redis.NewIntResult(0, err)
 	}
-	err = json.Unmarshal(bytes, &mvalue)
-	if err != nil {
-		return redis.NewIntResult(0, err)
+	jobject := gjson.ParseBytes(bytes)
+	for k, v := range jobject.Map() {
+		mvalue[k] = v.String()
 	}
 	if h.client != nil {
 		return h.client.HSet(ctx, key, mvalue)
@@ -274,46 +279,6 @@ func (h *Helper) HSetObject(ctx context.Context, key string, value any) *redis.I
 		return h.cluster.HSet(ctx, key, mvalue)
 	}
 	return nil
-}
-
-// HGetAllObject 通过 HGETALL 获取 Redis Hash 的全部字段，并反序列化到 value 指向的对象。
-//
-// 实现方式：HGETALL → map[string]string → map[string]any → JSON → value。
-//
-// 参数：
-//   - key：Redis Hash key。
-//   - value：必须是指针，反序列化结果将写入该指针指向的对象。
-//
-// 返回 *redis.StatusCmd：
-//   - 成功时 Val() 为 "OK"，Err() 为 nil。
-//   - key 不存在或 client 未设置时 Err() 为 redis.Nil。
-func (h *Helper) HGetAllObject(ctx context.Context, key string, value any) *redis.StatusCmd {
-	var mvalue map[string]any
-	var result map[string]string
-	var err error
-	if h.client != nil {
-		result, err = h.client.HGetAll(ctx, key).Result()
-	} else if h.cluster != nil {
-		result, err = h.cluster.HGetAll(ctx, key).Result()
-	} else {
-		return redis.NewStatusResult("", redis.Nil)
-	}
-	if err != nil {
-		return redis.NewStatusResult("", err)
-	}
-	mvalue = make(map[string]any)
-	for k, v := range result {
-		mvalue[k] = v
-	}
-	bytes, err := json.Marshal(mvalue)
-	if err != nil {
-		return redis.NewStatusResult("", err)
-	}
-	err = json.Unmarshal(bytes, &value)
-	if err != nil {
-		return redis.NewStatusResult("", err)
-	}
-	return redis.NewStatusResult("OK", nil)
 }
 
 // HGetObject 从 Redis Hash 中获取指定字段并反序列化到 value 指向的对象。
@@ -332,44 +297,106 @@ func (h *Helper) HGetAllObject(ctx context.Context, key string, value any) *redi
 // 返回 *redis.IntCmd：
 //   - Val() 为实际填充到 map 的字段数（含值为 nil 的字段）。
 //   - Err() 为错误；client 未设置时返回 redis.Nil。
-func (h *Helper) HGetObject(ctx context.Context, key string, value any, fields ...string) *redis.IntCmd {
+func (h *Helper) HGetObject(ctx context.Context, key string, value any, fields ...string) error {
 	var cmdable redis.Cmdable
 	if h.client != nil {
 		cmdable = h.client
 	} else if h.cluster != nil {
 		cmdable = h.cluster
 	} else {
-		return redis.NewIntResult(0, redis.Nil)
+		return redis.Nil
 	}
-
-	var mvalue map[string]any
+	m := make(map[string]string)
 
 	if len(fields) > 0 {
 		vals, err := cmdable.HMGet(ctx, key, fields...).Result()
 		if err != nil {
-			return redis.NewIntResult(0, err)
+			return err
 		}
-		mvalue = make(map[string]any, len(fields))
-		for i, f := range fields {
-			mvalue[f] = vals[i]
+		for i, field := range fields {
+			if vals[i] == nil {
+				continue
+			}
+			switch v := vals[i].(type) {
+			case string:
+				m[field] = v
+			case []byte:
+				m[field] = string(v)
+			default:
+				m[field] = fmt.Sprint(v)
+			}
 		}
-	} else {
-		result, err := cmdable.HGetAll(ctx, key).Result()
-		if err != nil {
-			return redis.NewIntResult(0, err)
-		}
-		mvalue = make(map[string]any, len(result))
-		for k, v := range result {
-			mvalue[k] = v
-		}
-	}
 
-	b, err := json.Marshal(mvalue)
-	if err != nil {
-		return redis.NewIntResult(0, err)
+	} else {
+		vals, err := cmdable.HGetAll(ctx, key).Result()
+		if err != nil {
+			return err
+		}
+		m = vals
 	}
-	if err := json.Unmarshal(b, value); err != nil {
-		return redis.NewIntResult(0, err)
+	h.mapToStruct(m, value)
+	return nil
+}
+
+func (h *Helper) mapToStruct(m map[string]string, value any) error {
+	v := reflect.ValueOf(value)
+	if v.Kind() != reflect.Ptr || v.IsNil() {
+		return errors.New("dst must be a non-nil pointer")
 	}
-	return redis.NewIntResult(int64(len(mvalue)), nil)
+	v = v.Elem()
+	if v.Kind() != reflect.Struct {
+		return errors.New("dst must point to a struct")
+	}
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		sf := t.Field(i)
+		fv := v.Field(i)
+		if !fv.CanSet() {
+			continue
+		}
+		key := sf.Tag.Get("redis")
+		if key == "" {
+			key = sf.Tag.Get("json")
+		}
+		if key == "" {
+			key = sf.Name
+		}
+		s, ok := m[key]
+		if !ok {
+			continue
+		}
+		switch fv.Kind() {
+		case reflect.String:
+			fv.SetString(s)
+		case reflect.Bool:
+			b, err := strconv.ParseBool(s)
+			if err != nil {
+				return err
+			}
+			fv.SetBool(b)
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			n, err := strconv.ParseInt(s, 10, 64)
+			if err != nil {
+				return err
+			}
+			fv.SetInt(n)
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			n, err := strconv.ParseUint(s, 10, 64)
+			if err != nil {
+				return err
+			}
+			fv.SetUint(n)
+		case reflect.Float32, reflect.Float64:
+			f, err := strconv.ParseFloat(s, 64)
+			if err != nil {
+				return err
+			}
+			fv.SetFloat(f)
+		default:
+			if err := json.Unmarshal([]byte(s), fv.Addr().Interface()); err != nil {
+				return fmt.Errorf("field %s: %w", sf.Name, err)
+			}
+		}
+	}
+	return nil
 }
