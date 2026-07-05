@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/lornshark/shark/sharkapp"
+	"github.com/shopspring/decimal"
 )
 
 // @title game-demo API
@@ -50,6 +51,7 @@ func (t *Test) Start() {
 			Def: "abc",
 		},
 		X: []int{1, 2, 3},
+		F: decimal.NewFromFloat(3.14),
 	}
 
 	err := t.svc.RedisHelper.HSetObject(context.Background(), "test", &x).Err()
@@ -73,5 +75,6 @@ type Testx struct {
 	Abc      struct {
 		Def string `json:"def"`
 	} `json:"abc"`
-	X []int `json:"x"`
+	X []int           `json:"x"`
+	F decimal.Decimal `json:"f"`
 }

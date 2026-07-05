@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/redis/go-redis/v9"
 	"github.com/tidwall/gjson"
 )
@@ -264,7 +265,7 @@ func (h *Helper) GetObject(ctx context.Context, key string, value any) *redis.St
 // 返回 *redis.IntCmd，Val() 为写入的字段数，Err() 为错误。
 func (h *Helper) HSetObject(ctx context.Context, key string, value any) *redis.IntCmd {
 	var mvalue map[string]string = make(map[string]string)
-	bytes, err := json.Marshal(value)
+	bytes, err := sonic.Marshal(value)
 	if err != nil {
 		return redis.NewIntResult(0, err)
 	}
