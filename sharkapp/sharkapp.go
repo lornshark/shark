@@ -105,6 +105,7 @@ type App struct {
 	RedisCluster *redis.ClusterClient
 	// RedisClient Redis 单机/主从模式客户端
 	RedisClient *redis.Client
+	RedisHelper *sharkredis.Helper
 	// Logger 结构化日志记录器（基于 zap）
 	Logger *zap.Logger
 	// Elastic Elasticsearch 客户端
@@ -207,6 +208,7 @@ func New(options *Options) (*App, error) {
 		cluster, err := sharkredis.NewCluster(app.Context, options.redis)
 		if err == nil {
 			app.RedisCluster = cluster
+			app.RedisHelper = sharkredis.NewHelperWithCluster(cluster)
 			app.Logger.Info("连接redis cluster成功", zap.Strings("host", options.redis.Host))
 		} else {
 			errMsg := err.Error()
@@ -220,6 +222,7 @@ func New(options *Options) (*App, error) {
 					return nil, err
 				}
 				app.RedisClient = client
+				app.RedisHelper = sharkredis.NewHelperWithClient(client)
 				app.Logger.Info("连接redis client成功", zap.Strings("host", options.redis.Host))
 			} else {
 				// 集群模式连接失败（非"不支持集群"的原因，如网络不通、密码错误等）
@@ -239,6 +242,7 @@ func New(options *Options) (*App, error) {
 		}
 		app.Logger.Info("连接redis cluster成功", zap.Strings("host", options.redis_cluster.Host))
 		app.RedisCluster = redis
+		app.RedisHelper = sharkredis.NewHelperWithCluster(redis)
 	}
 
 	// ---- Redis Client 明确配置（独立于自动探测） ----
@@ -251,6 +255,7 @@ func New(options *Options) (*App, error) {
 		}
 		app.Logger.Info("连接redis client成功", zap.Strings("host", options.redis_client.Host))
 		app.RedisClient = redis
+		app.RedisHelper = sharkredis.NewHelperWithClient(redis)
 	}
 
 	// ---- MySQL 初始化 ----
