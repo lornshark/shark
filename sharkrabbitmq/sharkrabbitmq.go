@@ -491,8 +491,8 @@ func (c *Client) Publish(exchange string, key string, value any) error {
 		// 结构体序列化为 JSON
 		body, _ = sonic.Marshal(value)
 	}
-	if len(body) > 1024*10 {
-		return fmt.Errorf("消息体过大，最大支持10KB")
+	if len(body) > 1024*100 {
+		return fmt.Errorf("消息体过大，最大支持100KB")
 	}
 	msg := publishMsg{
 		exchange: exchange,
