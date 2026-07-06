@@ -307,6 +307,15 @@ func (h *Helper) HGetObject(ctx context.Context, key string, value any, fields .
 	} else {
 		return redis.Nil
 	}
+	v := reflect.ValueOf(value)
+	if v.Kind() != reflect.Ptr || v.IsNil() {
+		return errors.New("dst must be a non-nil pointer")
+	}
+	v = v.Elem()
+	if v.Kind() != reflect.Struct {
+		return errors.New("dst must point to a struct")
+	}
+
 	m := make(map[string]string)
 
 	if len(fields) > 0 {
@@ -335,19 +344,11 @@ func (h *Helper) HGetObject(ctx context.Context, key string, value any, fields .
 		}
 		m = vals
 	}
-	h.mapToStruct(m, value)
+	h.mapToStruct(m, v)
 	return nil
 }
 
-func (h *Helper) mapToStruct(m map[string]string, value any) error {
-	v := reflect.ValueOf(value)
-	if v.Kind() != reflect.Ptr || v.IsNil() {
-		return errors.New("dst must be a non-nil pointer")
-	}
-	v = v.Elem()
-	if v.Kind() != reflect.Struct {
-		return errors.New("dst must point to a struct")
-	}
+func (h *Helper) mapToStruct(m map[string]string, v reflect.Value) error {
 	t := v.Type()
 	for i := 0; i < t.NumField(); i++ {
 		sf := t.Field(i)
@@ -355,10 +356,7 @@ func (h *Helper) mapToStruct(m map[string]string, value any) error {
 		if !fv.CanSet() {
 			continue
 		}
-		key := sf.Tag.Get("redis")
-		if key == "" {
-			key = sf.Tag.Get("json")
-		}
+		key := sf.Tag.Get("json")
 		if key == "" {
 			key = sf.Name
 		}
