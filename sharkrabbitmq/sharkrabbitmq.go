@@ -355,7 +355,7 @@ func (c *Client) handle_channel(channel <-chan amqp.Delivery, handler func(amqp.
 
 // BatchConsume 批量消费消息，handler 返回 false 或 panic 停止处理且不 ack 消息。
 //
-// 每批最多聚合 5000 条消息（使用 DrainChannelN），
+// 每批最多聚合（使用 DrainChannelN），
 // handler 返回 true 时统一 ack 整批消息，返回 false 时不 ack。
 // handler 中不应手动 ack 消息。
 //
@@ -378,7 +378,25 @@ func (c *Client) handle_channel(channel <-chan amqp.Delivery, handler func(amqp.
 //   - key: 路由键
 //   - batchSize: 每批处理的最大消息数
 //   - handler: 批量消息处理函数，返回 true 表示整批 ack
-func (c *Client) BatchConsume(exchange string, queue string, key string, batchSize int, handler func([]amqp.Delivery) bool) {
+type BatchConsumeConfig struct {
+	BatchSize *int           // 每批处理的最大消息数，默认 10000
+	Timeout   *time.Duration // 批次处理超时时间，默认 0 立即返回
+}
+
+func (c *Client) BatchConsume(exchange string, queue string, key string, cfg *BatchConsumeConfig, handler func([]amqp.Delivery) bool) {
+	if cfg == nil {
+		cfg = &BatchConsumeConfig{
+			BatchSize: sharkfunc.Pointer(10000),
+			Timeout:   sharkfunc.Pointer(time.Duration(0)),
+		}
+	}
+	if cfg.BatchSize == nil {
+		cfg.BatchSize = sharkfunc.Pointer(10000)
+	}
+	if cfg.Timeout == nil {
+		cfg.Timeout = sharkfunc.Pointer(time.Duration(0))
+	}
+	batchSize := *cfg.BatchSize
 	go func() {
 		for {
 			if c.ctx.Err() != nil {
@@ -433,8 +451,8 @@ func (c *Client) BatchConsume(exchange string, queue string, key string, batchSi
 				return handler(msgs)
 			}
 			for {
-				// 批量收集消息（每批最多 5000 条）
-				messages := sharkfunc.DrainChannelN(ctx, drainChannel, 5000)
+				// 批量收集消息
+				messages := sharkfunc.DrainChannelN(ctx, drainChannel, batchSize, *cfg.Timeout)
 				if len(messages) == 0 && ctx.Err() != nil {
 					cancel()
 					break

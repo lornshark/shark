@@ -177,7 +177,7 @@ func ParallelCall(funcs ...func()) error {
 //
 //	data := sharkfunc.DrainChannelN(ctx, msgCh, 100)
 //	// data 最多包含 100 条消息，不会因等待更多数据而阻塞
-func DrainChannelN[T any](ctx context.Context, ch <-chan T, size int) []T {
+func DrainChannelN[T any](ctx context.Context, ch <-chan T, size int, timeout time.Duration) []T {
 	// 预分配容量为 size 的切片，减少扩容开销
 	var result []T = make([]T, 0, size)
 
@@ -200,6 +200,7 @@ func DrainChannelN[T any](ctx context.Context, ch <-chan T, size int) []T {
 		result = append(result, v)
 	}
 
+	start := time.Now()
 	// 阶段二：非阻塞地尽量多读取数据
 	// 使用 select+default 实现非阻塞读取，有数据就拿，没数据就返回
 	for len(result) < size {
@@ -214,6 +215,14 @@ func DrainChannelN[T any](ctx context.Context, ch <-chan T, size int) []T {
 			}
 			result = append(result, v)
 		default:
+			if timeout > 0 && time.Since(start) <= timeout {
+				sleepTime := time.Second
+				if timeout-time.Since(start) < sleepTime {
+					sleepTime = timeout - time.Since(start)
+				}
+				time.Sleep(sleepTime)
+				continue
+			}
 			// channel 中没有立即可用的数据，返回已读取的数据
 			// 避免因等待更多数据而无限阻塞
 			return result

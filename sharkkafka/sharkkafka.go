@@ -426,13 +426,17 @@ func (s *SharkKafka) Reader(topic string, group string, cfg *ReaderConfig) *kafk
 		cfg.StartOffset = sharkfunc.Pointer(kafka.FirstOffset)
 	}
 	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:     s.config.Host,
-		Topic:       topic,
-		GroupID:     group,
-		MinBytes:    *cfg.MinBytes, // 有数据就返回（低延迟）
-		MaxBytes:    *cfg.MaxBytes, // 单次最多返回 10MB
-		Dialer:      s.dialer,
-		StartOffset: *cfg.StartOffset, // 从最早的消息开始消费
+		Brokers:           s.config.Host,
+		Topic:             topic,
+		GroupID:           group,
+		MinBytes:          *cfg.MinBytes, // 有数据就返回（低延迟）
+		MaxBytes:          *cfg.MaxBytes, // 单次最多返回 10MB
+		Dialer:            s.dialer,
+		StartOffset:       *cfg.StartOffset, // 从最早的消息开始消费
+		SessionTimeout:    time.Minute,      // 超过这个时间没有收到 Consumer 的 heartbeat，Coordinator 认为 Consumer 死了，然后触发 Rebalance。
+		RebalanceTimeout:  time.Minute,      // Consumer 加入 group 后，参与 rebalance 的最大等待时间。
+		QueueCapacity:     10000,            // 内部缓冲队列容量，避免短时间内拉取过多消息导致内存占用过高
+		HeartbeatInterval: 10 * time.Second,
 	})
 	return reader
 }
@@ -485,7 +489,8 @@ func (s *SharkKafka) Reader(topic string, group string, cfg *ReaderConfig) *kafk
 //	})
 type BatchConfig struct {
 	ReaderConfig
-	BatchSize *int // 每批处理的最大消息数，默认 10000
+	BatchSize *int           // 每批处理的最大消息数，默认 10000
+	Timeout   *time.Duration // 批次处理超时时间，默认 0 立即返回
 }
 
 func (s *SharkKafka) BatchConsumer(topic string, group string, cfg *BatchConfig, handler func([]kafka.Message) bool) {
@@ -496,7 +501,8 @@ func (s *SharkKafka) BatchConsumer(topic string, group string, cfg *BatchConfig,
 				MaxBytes:    sharkfunc.Pointer(10 * 1024 * 1024),  // 单次最多返回 10MB
 				StartOffset: sharkfunc.Pointer(kafka.FirstOffset), // 从最早的消息开始消费
 			},
-			BatchSize: sharkfunc.Pointer(10000), // 每批处理的最大消息数，默认  10000
+			BatchSize: sharkfunc.Pointer(10000),            // 每批处理的最大消息数，默认  10000
+			Timeout:   sharkfunc.Pointer(time.Duration(0)), // 批次处理超时时间，默认 0 立即返回
 		}
 	}
 	if cfg.MinBytes == nil {
@@ -510,6 +516,9 @@ func (s *SharkKafka) BatchConsumer(topic string, group string, cfg *BatchConfig,
 	}
 	if cfg.BatchSize == nil {
 		cfg.BatchSize = sharkfunc.Pointer(10000)
+	}
+	if cfg.Timeout == nil {
+		cfg.Timeout = sharkfunc.Pointer(time.Duration(0))
 	}
 	reader := s.Reader(topic, group, &cfg.ReaderConfig)
 	batchSize := *cfg.BatchSize
@@ -537,7 +546,7 @@ func (s *SharkKafka) BatchConsumer(topic string, group string, cfg *BatchConfig,
 	go func() {
 		for {
 			// 批量排空 channel，最多取 batchSize 条
-			messages := sharkfunc.DrainChannelN(running, channel, batchSize)
+			messages := sharkfunc.DrainChannelN(running, channel, batchSize, *cfg.Timeout)
 			if len(messages) == 0 && running.Err() != nil {
 				// channel 为空且上下文已取消 → 正常退出
 				return
