@@ -1,11 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/lornshark/shark/sharkapp"
-	"github.com/shopspring/decimal"
+	"github.com/lornshark/shark/sharkcsv"
 )
 
 // @title game-demo API
@@ -39,42 +38,15 @@ type Test struct {
 	svc *sharkapp.App
 }
 
-func (t *Test) Start() {
-
-	x := &Testx{
-		Name:     "test",
-		Password: "123456",
-		Id:       123,
-		Abc: struct {
-			Def string `json:"def"`
-		}{
-			Def: "abc",
-		},
-		X: []int{1, 2, 3},
-		F: decimal.NewFromFloat(3.14),
-	}
-
-	err := t.svc.RedisHelper.HSetObject(context.Background(), "test", &x).Err()
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	var y Testx
-	err = t.svc.RedisHelper.HGetObject(context.Background(), "test", &y)
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println(y)
-
+type TestUser struct {
+	A string `json:"a"`
+	B int    `json:"b"`
+	C string `json:"c"`
 }
 
-type Testx struct {
-	Id       int    `json:"id"`
-	Name     string `json:"name"`
-	Password string `json:"password"`
-	Abc      struct {
-		Def string `json:"def"`
-	} `json:"abc"`
-	X []int           `json:"x"`
-	F decimal.Decimal `json:"f"`
+func (t *Test) Start() {
+	csv := sharkcsv.OpenFile("x.csv", nil)
+	x := []TestUser{}
+	csv.Scan(&x)
+	fmt.Println(x)
 }
