@@ -57,9 +57,9 @@ func TestWithTimeoutPanic(t *testing.T) {
 func TestParallelCallSuccess(t *testing.T) {
 	var a, b, c int
 	err := sharkfunc.ParallelCall(
-		func() { a = 1 },
-		func() { b = 2 },
-		func() { c = 3 },
+		func() error { a = 1; return nil },
+		func() error { b = 2; return nil },
+		func() error { c = 3; return nil },
 	)
 	if err != nil {
 		t.Errorf("ParallelCall 不应有错误: %v", err)
@@ -71,8 +71,8 @@ func TestParallelCallSuccess(t *testing.T) {
 
 func TestParallelCallPanic(t *testing.T) {
 	err := sharkfunc.ParallelCall(
-		func() { panic("error1") },
-		func() { /* normal */ },
+		func() error { panic("error1"); return nil },
+		func() error { /* normal */ return nil },
 	)
 	if err == nil {
 		t.Error("panic 应返回错误")

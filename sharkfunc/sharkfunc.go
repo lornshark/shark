@@ -118,7 +118,7 @@ func WithTimeout(parent context.Context, timeout time.Duration, fn func(context.
 //	if err != nil {
 //	    // 处理 panic 错误
 //	}
-func ParallelCall(funcs ...func()) error {
+func ParallelCall(funcs ...func() error) error {
 	var wg sync.WaitGroup
 
 	// 使用带缓冲的 channel 收集各 goroutine 的 panic 错误
@@ -126,17 +126,23 @@ func ParallelCall(funcs ...func()) error {
 	ch := make(chan error, len(funcs))
 
 	for _, fn := range funcs {
+		if fn == nil {
+			continue
+		}
 		wg.Add(1)
 		// 通过闭包参数传递 fn，避免循环变量捕获问题
-		go func(f func()) {
+		go func(f func() error) {
 			defer wg.Done()
 			defer func() {
 				// 捕获 panic 并转换为 error 发送到 channel
 				if r := recover(); r != nil {
-					ch <- fmt.Errorf("panic: %v", r)
+					ch <- fmt.Errorf("panic: %v\n%s", r, debug.Stack())
 				}
 			}()
-			f()
+			err := f()
+			if err != nil {
+				ch <- err
+			}
 		}(fn)
 	}
 
@@ -144,14 +150,11 @@ func ParallelCall(funcs ...func()) error {
 	wg.Wait()
 	// 关闭 channel，使后续的 range 循环能够正常结束
 	close(ch)
-
-	// 遍历所有收集到的错误，返回第一个非 nil 错误
+	errs := make([]error, 0, len(funcs))
 	for err := range ch {
-		if err != nil {
-			return err
-		}
+		errs = append(errs, err)
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // DrainChannelN 从 channel 中批量读取最多 size 条数据。
