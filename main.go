@@ -1,10 +1,7 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/lornshark/shark/sharkapp"
-	"github.com/lornshark/shark/sharkcsv"
 )
 
 // @title game-demo API
@@ -38,15 +35,5 @@ type Test struct {
 	svc *sharkapp.App
 }
 
-type TestUser struct {
-	A string `json:"a"`
-	B int    `json:"b"`
-	C string `json:"c"`
-}
-
 func (t *Test) Start() {
-	csv := sharkcsv.OpenFile("x.csv", nil)
-	x := []TestUser{}
-	csv.Scan(&x)
-	fmt.Println(x)
 }
