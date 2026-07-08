@@ -399,3 +399,38 @@ func (h *Helper) mapToStruct(m map[string]string, v reflect.Value) error {
 	}
 	return nil
 }
+
+func (h *Helper) HMGetToMap(ctx context.Context, key string, fields ...string) (map[string]string, error) {
+	var cmdable redis.Cmdable
+	if h.client != nil {
+		cmdable = h.client
+	} else if h.cluster != nil {
+		cmdable = h.cluster
+	} else {
+		return nil, errors.New("redis client is nil")
+	}
+
+	vals, err := cmdable.HMGet(ctx, key, fields...).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]string, len(fields))
+	for i, field := range fields {
+		if i >= len(vals) {
+			break
+		}
+		if vals[i] == nil {
+			continue
+		}
+		switch v := vals[i].(type) {
+		case string:
+			result[field] = v
+		case []byte:
+			result[field] = string(v)
+		default:
+			result[field] = fmt.Sprint(v)
+		}
+	}
+	return result, nil
+}
