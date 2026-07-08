@@ -71,7 +71,7 @@ func TestParallelCallSuccess(t *testing.T) {
 
 func TestParallelCallPanic(t *testing.T) {
 	err := sharkfunc.ParallelCall(
-		func() error { panic("error1"); return nil },
+		func() error { panic("error1") },
 		func() error { /* normal */ return nil },
 	)
 	if err == nil {
