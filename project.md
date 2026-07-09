@@ -221,3 +221,238 @@ sharkdecimal.Normalize(v, precision)
 - 实例名: `game-test`
 - Swagger 注解: `@title game-demo API`, `@BasePath /api`, `ApiKeyAuth(x-token)`
 - 端口配置(默认): http=3928, grpc=3929, health=3930, pprof=3931
+
+---
+
+## 📁 文件清单
+
+> ⚠️ **重要：新增文件时必须在此清单中登记**，注明文件路径、包名、功能说明，以便后续任务理解项目结构。
+
+### 根目录
+
+| 文件 | 说明 |
+|---|---|
+| `main.go` | 项目入口，创建 `sharkapp.App`，注册业务组件并启动 |
+| `go.mod` | Go 模块定义 (`github.com/lornshark/shark`)，Go 1.26+ |
+| `go.sum` | 依赖校验文件 (自动生成) |
+| `project.md` | 项目说明文档 (本文件) |
+| `README.md` | 项目 README |
+| `tag.sh` | 自动 tag 脚本，基于最新 tag 递增 patch 版本号并推送 |
+| `.gitignore` | Git 忽略规则 |
+
+### config/
+
+| 文件 | 说明 |
+|---|---|
+| `config/config.yaml` | 全局配置文件模板，定义所有中间件连接参数和端口 |
+
+### sharkapp — 应用启动核心
+
+| 文件 | 说明 |
+|---|---|
+| `sharkapp/sharkapp.go` | `App` 结构体(聚合所有中间件客户端)、`New()` 初始化16步流程、`Hunt()` 启动+优雅关闭、`AppComponent` 接口、`Go()` 安全 goroutine |
+| `sharkapp/option.go` | `Options` 配置结构体、`NewOption()` 加载 config.yaml、环境变量覆盖、RSA 密码解密、`WithXxx` 链式配置方法 |
+
+### sharklog — 日志
+
+| 文件 | 说明 |
+|---|---|
+| `sharklog/sharklog.go` | `SharkLog` 双通道日志(控制台+Kafka)，基于 zap |
+
+### sharkdb — 数据库
+
+| 文件 | 说明 |
+|---|---|
+| `sharkdb/sharkdb.go` | `NewDb()` MySQL GORM 连接创建 |
+| `sharkdb/sharktable.go` | `SharkTable` 链式查询封装 (Eq/Gte/Like/Desc/Page 等) |
+| `sharkdb/tablescan.go` | `TableScan` Keyset 游标分页 + Excel 导出 |
+
+### sharksql — SQL 构建器
+
+| 文件 | 说明 |
+|---|---|
+| `sharksql/sharksql.go` | `IsDuplicateKey()` 重复键检测、`ToFindSql/ToUpdateSql` 等 DryRun SQL 调试 |
+| `sharksql/condition.go` | 条件构建器: `Eq/Neq/Gt/Gte/Lt/Lte/Like/In/IsNull/Between` 等 |
+| `sharksql/aggregate.go` | 聚合函数: `Count/Sum/Avg/Max/Min` 及 As 变体 |
+| `sharksql/expression.go` | 表达式辅助: `As/Paren/Coalesce/IfNull/Case/When/Distinct/Column` |
+| `sharksql/json.go` | MySQL JSON 函数: `JsonExtract/JsonContains/JsonSet/JsonArrayAppend` |
+| `sharksql/join.go` | JOIN 构建: `LeftJoin/InnerJoin` |
+| `sharksql/builder.go` | `SqlBuilder` 流式 API 条件构建器、`NewSql()` |
+| `sharksql/struct_where.go` | 反射结构体自动生成 WHERE 条件、`ToUpdate` 自动生成 UPDATE SET |
+| `sharksql/pagination.go` | `PageQuery[T]` 泛型分页查询 |
+
+### sharkredis — Redis
+
+| 文件 | 说明 |
+|---|---|
+| `sharkredis/sharkredis.go` | `Config` 配置结构体、`NewCluster()` 集群模式、`NewClient()` 单机模式 |
+| `sharkredis/helper.go` | `Helper` 统一封装(集群/单机)、`Scan/Keys` 流式扫描、`Unlink` 批量删除、`SetObject/GetObject` JSON 序列化存取、`HSetObject/HGetObject` Hash 对象映射 |
+
+### sharkkafka — Kafka
+
+| 文件 | 说明 |
+|---|---|
+| `sharkkafka/sharkkafka.go` | `SharkKafka` 客户端、`Writer` 生产者、`BatchConsumer` 批量消费 |
+
+### sharkgrpc — gRPC
+
+| 文件 | 说明 |
+|---|---|
+| `sharkgrpc/sharkgrpc.go` | `RpcServer` 服务端、`New()` 创建服务、`GetRpcConnection()` 客户端连接(基于 Redis 服务发现) |
+
+### sharkhttp — HTTP
+
+| 文件 | 说明 |
+|---|---|
+| `sharkhttp/sharkhttp.go` | `New()` Gin HTTP 服务创建、`WsUpgrader` WebSocket 升级 |
+| `sharkhttp/middleware.go` | 3 个内置中间件: `recoveryMiddleware`(panic恢复)、`corsMiddleware`(跨域)、`errorMiddleware`(业务错误转JSON) |
+
+### sharktimer — 定时器
+
+| 文件 | 说明 |
+|---|---|
+| `sharktimer/sharktimer.go` | `Timer` 基于 Redis ZSet 的轻量级定时器、`AddTimer/RemoveTimer/DefaultCallback` |
+
+### sharksnowflake — Snowflake ID
+
+| 文件 | 说明 |
+|---|---|
+| `sharksnowflake/sharksnowflake.go` | `NewSnowflake()` 创建、`Generate()` 生成 int64 唯一ID (52万/秒) |
+
+### sharkdecimal — 高精度数值
+
+| 文件 | 说明 |
+|---|---|
+| `sharkdecimal/sharkdecimal.go` | `Normalize/Normalize2/Normalize6` decimal 精度处理 |
+
+### sharkelastic — Elasticsearch
+
+| 文件 | 说明 |
+|---|---|
+| `sharkelastic/sharkelastic.go` | `SharkElastic` 客户端、`New()` 创建连接 |
+| `sharkelastic/elasticapi.go` | `CreateIndex/Search/Insert` 等 ES 操作 API |
+
+### sharkeswhere — ES 查询构建
+
+| 文件 | 说明 |
+|---|---|
+| `sharkeswhere/sharkeswhere.go` | ES Query DSL 条件构建 |
+
+### sharkcache — 缓存
+
+| 文件 | 说明 |
+|---|---|
+| `sharkcache/sharkcache.go` | `Cache[T]` 多层缓存防击穿、`New()` 创建、`Get()` singleflight + seeker 链 |
+
+### sharkauth — 权限
+
+| 文件 | 说明 |
+|---|---|
+| `sharkauth/sharkauth.go` | `AuthNode` RBAC 权限树(多叉树)、`NormalizeAuthTree/PruneAuth/SyncAuthTree/Permissions/Flatten` |
+
+### sharkerror — 业务错误
+
+| 文件 | 说明 |
+|---|---|
+| `sharkerror/sharkerror.go` | `New(code)` 创建错误、`WithData/WithErr/WithMsg` 链式附加信息 |
+
+### sharkfunc — 泛型/并发工具
+
+| 文件 | 说明 |
+|---|---|
+| `sharkfunc/sharkfunc.go` | `WithTimeout()` 超时控制、`ParallelCall()` 并行执行、`DrainChannelN()` channel 批量读取、`Recover()` panic 恢复、`Pointer[T]` 泛型指针、时间格式化函数 |
+
+### sharkutils — 通用工具
+
+| 文件 | 说明 |
+|---|---|
+| `sharkutils/sharkutils.go` | `RandNum/Md5/GetClientIp/BcryptHash/BcryptCheck` 等工具函数 |
+
+### sharkjson — JSON
+
+| 文件 | 说明 |
+|---|---|
+| `sharkjson/sharkjson.go` | `ParseJsonBytes[T]` 泛型反序列化、`ToJsonString` 序列化 |
+
+### sharkverify — 两步验证
+
+| 文件 | 说明 |
+|---|---|
+| `sharkverify/sharkverify.go` | `NewSecret/VerifyCode/GetQrCodeUrl` TOTP 验证 |
+
+### sharkzip — 压缩
+
+| 文件 | 说明 |
+|---|---|
+| `sharkzip/sharkzip.go` | `Compress/Decompress` Zlib 压缩 |
+
+### sharkrabbitmq — RabbitMQ
+
+| 文件 | 说明 |
+|---|---|
+| `sharkrabbitmq/sharkrabbitmq.go` | `Client` 客户端、`Publish/Consume/BatchConsume` |
+
+### sharkmongodb — MongoDB
+
+| 文件 | 说明 |
+|---|---|
+| `sharkmongodb/sharkmongodb.go` | `New()` 创建 mongo.Client |
+
+### sharkminio — MinIO
+
+| 文件 | 说明 |
+|---|---|
+| `sharkminio/sharkmonio.go` | `New()` 创建 minio.Client |
+
+### sharketcd — etcd
+
+| 文件 | 说明 |
+|---|---|
+| `sharketcd/sharketcd.go` | `New()` 创建 clientv3.Client |
+
+### sharkrisingwave — RisingWave
+
+| 文件 | 说明 |
+|---|---|
+| `sharkrisingwave/sharkrisingwave.go` | `New()` 创建 *gorm.DB (PostgreSQL 协议) |
+
+### sharkbufferpool — 缓冲池
+
+| 文件 | 说明 |
+|---|---|
+| `sharkbufferpool/sharkbufferpool.go` | 字节缓冲区复用 (内部性能优化) |
+
+### test/ — 测试文件
+
+| 文件 | 说明 |
+|---|---|
+| `test/sharkfunc_test.go` | sharkfunc 包单元测试 |
+| `test/sharkjson_test.go` | sharkjson 包单元测试 |
+| `test/sharkerror_test.go` | sharkerror 包单元测试 |
+| `test/sharkutils_test.go` | sharkutils 包单元测试 |
+| `test/sharkverify_test.go` | sharkverify 包单元测试 |
+| `test/sharkdecimal_test.go` | sharkdecimal 包单元测试 |
+| `test/sharksnowflake_test.go` | sharksnowflake 包单元测试 |
+| `test/sharkzip_test.go` | sharkzip 包单元测试 |
+| `test/sharksql_func_test.go` | sharksql 函数单元测试 |
+| `test/sharksql_builder_test.go` | sharksql Builder 单元测试 |
+| `test/sharksql_where_test.go` | sharksql Where 条件单元测试 |
+| `test/sql_from_req_test.go` | SQL 从请求构建测试 |
+| `test/sharktable_test.go` | sharkdb SharkTable 单元测试 |
+| `test/sharkdb_integration_test.go` | sharkdb 集成测试 |
+| `test/sharkcache_test.go` | sharkcache 单元测试 |
+| `test/sharkredis_integration_test.go` | sharkredis 集成测试 |
+| `test/sharkkafka_integration_test.go` | sharkkafka 集成测试 |
+| `test/sharkelastic_integration_test.go` | sharkelastic 集成测试 |
+| `test/sharkelastic_where_test.go` | sharkeswhere 单元测试 |
+| `test/sharkrabbitmq_integration_test.go` | sharkrabbitmq 集成测试 |
+| `test/sharkmongo_integration_test.go` | sharkmongodb 集成测试 |
+| `test/sharkminio_integration_test.go` | sharkminio 集成测试 |
+| `test/sharketcd_integration_test.go` | sharketcd 集成测试 |
+| `test/sharkrisingwave_integration_test.go` | sharkrisingwave 集成测试 |
+| `test/sharkhttp_integration_test.go` | sharkhttp 集成测试 |
+| `test/sharktimer_test.go` | sharktimer 单元测试 |
+| `test/sharkauth_test.go` | sharkauth 单元测试 |
+| `test/helper_test.go` | 测试辅助函数 |
+
+> **📝 新增文件登记模板：** 在对应包名章节下添加 `| 文件路径 | 功能说明 |` 行。
