@@ -326,7 +326,7 @@ func Distinct(columns ...string) string {
 	if len(columns) == 1 {
 		return "DISTINCT " + columns[0]
 	}
-	return "DISTINCT(" + strings.Join(columns, ", ") + ")"
+	return "DISTINCT " + strings.Join(columns, ", ")
 }
 
 // ========== 表名/列名辅助函数 ==========
