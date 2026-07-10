@@ -1,11 +1,9 @@
 package sharkcache
 
 import (
-	"crypto/md5"
 	"errors"
-	"fmt"
 
-	"github.com/bytedance/sonic"
+	"github.com/lornshark/shark/sharkfunc"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -90,9 +88,8 @@ func New[T any](seekers ...func(args ...any) (*T, error)) *Cache[T] {
 //	user, err := cache.Get(userId, orgId, status)
 func (c *Cache[T]) Get(args ...any) (*T, error) {
 	// 将参数序列化为字节后计算 MD5，作为 singleflight 的去重 key
-	bytes, _ := sonic.Marshal(args)
-	sum := md5.Sum(bytes)
-	key := fmt.Sprintf("%x", sum)
+
+	key := sharkfunc.MakeKey(args...)
 
 	// singleflight: 同一 key 的并发请求只会执行一次
 	v, err, _ := c.sg.Do(key, func() (any, error) {

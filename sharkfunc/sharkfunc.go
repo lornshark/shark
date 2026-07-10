@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"runtime"
 	"runtime/debug"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -329,4 +331,16 @@ func FormatToRFC3330WithFormatAndLocation(s *string, format string, loc *time.Lo
 	}
 	str := t.Format(time.RFC3339)
 	return &str
+}
+
+func MakeKey(args ...any) string {
+	var b strings.Builder
+	for _, arg := range args {
+		s := fmt.Sprint(arg)
+		b.WriteString(strconv.Itoa(len(s)))
+		b.WriteByte(':')
+		b.WriteString(s)
+		b.WriteByte('|')
+	}
+	return b.String()
 }
