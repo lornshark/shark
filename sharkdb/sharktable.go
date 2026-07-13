@@ -232,6 +232,20 @@ func (t *SharkTable) FromTo(column string, from any, to any) *SharkTable {
 	return t
 }
 
+// Between 添加左闭右开区间条件：[from, to)，即 column >= ? AND column < ?。
+// from 或 to 为空时自动跳过。
+//
+// 示例：
+//
+//	table.Between("age", 18, 60)
+//	// → age >= ? AND age < ?
+func (t *SharkTable) Between(column string, from any, to any) *SharkTable {
+	if !t.isEmpty(from) && !t.isEmpty(to) {
+		t.db = t.db.Where(column+" >= ? AND "+column+" < ?", from, to)
+	}
+	return t
+}
+
 // Like 添加模糊匹配条件：column LIKE '%value%'（前后通配）。
 // value 为空时自动跳过。支持指针类型自动解引用。
 //
