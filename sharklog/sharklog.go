@@ -228,9 +228,7 @@ func (w *logWriter) Write(p []byte) (n int, err error) {
 		// 使用 sonic 进行高性能 JSON 序列化
 		b, _ := sonic.Marshal(data)
 		// 写入 Kafka（5 秒超时，避免 Kafka 不可用时阻塞日志）
-		writeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		err := w.writer.WriteMessages(writeCtx, kafka.Message{Value: b})
-		cancel()
+		err := w.writer.WriteMessages(context.Background(), kafka.Message{Value: b})
 		if err != nil {
 			// Kafka 写入失败：降级输出到控制台，不阻塞业务日志
 			fmt.Println("日志写入Kafka失败", err, "日志内容", string(p))
