@@ -328,7 +328,10 @@ func ToUpdateData(req any) map[string]any {
 		if column == "" {
 			continue
 		}
-
+		sp := strings.Index(column, ",")
+		if sp != -1 {
+			column = column[:sp]
+		}
 		fieldVal := v.Field(i)
 		if fieldVal.Kind() != reflect.Ptr {
 			continue
