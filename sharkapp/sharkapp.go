@@ -190,7 +190,7 @@ func New(options *Options) (*App, error) {
 		// dev/test 环境自动将日志写入 Kafka，方便开发调试
 		// 生产环境由运维统一收集日志，不需要应用层自行写入
 		if app.Env == "dev" || app.Env == "test" {
-			topic := fmt.Sprintf("%v_game_log", app.Project)
+			topic := fmt.Sprintf("%v_game_log_%v", app.Project, app.Env)
 			kafkaLogWriter, err := app.Kafka.Writer(topic, nil)
 			if err != nil {
 				app.Logger.Warn("创建Kafka日志Writer失败，日志仅输出到控制台", zap.Error(err))
