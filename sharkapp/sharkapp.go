@@ -37,6 +37,7 @@ import (
 	"github.com/lornshark/shark/sharkdb"
 	"github.com/lornshark/shark/sharkelastic"
 	"github.com/lornshark/shark/sharketcd"
+	"github.com/lornshark/shark/sharkfunc"
 	"github.com/lornshark/shark/sharkgrpc"
 	"github.com/lornshark/shark/sharkhttp"
 	"github.com/lornshark/shark/sharkkafka"
@@ -191,7 +192,9 @@ func New(options *Options) (*App, error) {
 		// 生产环境由运维统一收集日志，不需要应用层自行写入
 		if app.Env == "dev" || app.Env == "test" {
 			topic := fmt.Sprintf("%v_game_log_%v", app.Project, app.Env)
-			kafkaLogWriter, err := app.Kafka.Writer(topic, nil)
+			kafkaLogWriter, err := app.Kafka.Writer(topic, &sharkkafka.WriterConfig{
+				Async: sharkfunc.Pointer(true), // 异步写入 Kafka，避免阻塞业务日志
+			})
 			if err != nil {
 				app.Logger.Warn("创建Kafka日志Writer失败，日志仅输出到控制台", zap.Error(err))
 			} else {
