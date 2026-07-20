@@ -85,7 +85,7 @@ func TestDrainChannelN(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		ch <- i
 	}
-	result := sharkfunc.DrainChannelN(context.Background(), ch, 5, 0)
+	result, _ := sharkfunc.DrainChannelN(context.Background(), ch, 5, 0)
 	if len(result) != 5 {
 		t.Errorf("应最多返回 5 条, got %d", len(result))
 	}
@@ -96,7 +96,7 @@ func TestDrainChannelNWithCtxCancel(t *testing.T) {
 	// 不预先放入数据，只取消 ctx：阻塞读取时 ctx.Done() 立即触发
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	result := sharkfunc.DrainChannelN(ctx, ch, 10, 0)
+	result, _ := sharkfunc.DrainChannelN(ctx, ch, 10, 0)
 	if len(result) != 0 {
 		t.Errorf("ctx 取消应返回空, got %d", len(result))
 	}
@@ -107,14 +107,14 @@ func TestDrainChannelNWithClosedChannel(t *testing.T) {
 	ch <- 1
 	ch <- 2
 	close(ch)
-	result := sharkfunc.DrainChannelN(context.Background(), ch, 10, 0)
+	result, _ := sharkfunc.DrainChannelN(context.Background(), ch, 10, 0)
 	if len(result) != 2 {
 		t.Errorf("应返回已关闭 channel 中所有 2 条, got %d", len(result))
 	}
 }
 
 func TestDrainChannelNWithNilChannel(t *testing.T) {
-	result := sharkfunc.DrainChannelN[int](context.Background(), nil, 10, 0)
+	result, _ := sharkfunc.DrainChannelN[int](context.Background(), nil, 10, 0)
 	if len(result) != 0 {
 		t.Errorf("nil channel 应返回空切片, got %d", len(result))
 	}

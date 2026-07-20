@@ -182,13 +182,13 @@ func ParallelCall(funcs ...func() error) error {
 //
 //	data := sharkfunc.DrainChannelN(ctx, msgCh, 100)
 //	// data 最多包含 100 条消息，不会因等待更多数据而阻塞
-func DrainChannelN[T any](ctx context.Context, ch <-chan T, size int, timeout time.Duration) []T {
+func DrainChannelN[T any](ctx context.Context, ch <-chan T, size int, timeout time.Duration) ([]T, error) {
 	// 预分配容量为 size 的切片，减少扩容开销
 	var result []T = make([]T, 0, size)
 
 	// 边界检查：nil channel 或无效 size 直接返回空结果
 	if ch == nil || size <= 0 {
-		return result
+		return result, nil
 	}
 
 	// 阶段一：阻塞等待第一条数据
@@ -196,11 +196,11 @@ func DrainChannelN[T any](ctx context.Context, ch <-chan T, size int, timeout ti
 	select {
 	case <-ctx.Done():
 		// context 已取消，立即返回
-		return result
+		return result, ctx.Err()
 	case v, ok := <-ch:
 		if !ok {
 			// channel 已关闭，返回空结果
-			return result
+			return result, errors.New("channel closed")
 		}
 		result = append(result, v)
 	}
@@ -212,11 +212,11 @@ func DrainChannelN[T any](ctx context.Context, ch <-chan T, size int, timeout ti
 		select {
 		case <-ctx.Done():
 			// context 取消，返回已读取的数据
-			return result
+			return result, ctx.Err()
 		case v, ok := <-ch:
 			if !ok {
 				// channel 关闭，返回已读取的数据
-				return result
+				return result, errors.New("channel closed")
 			}
 			result = append(result, v)
 		default:
@@ -230,11 +230,11 @@ func DrainChannelN[T any](ctx context.Context, ch <-chan T, size int, timeout ti
 			}
 			// channel 中没有立即可用的数据，返回已读取的数据
 			// 避免因等待更多数据而无限阻塞
-			return result
+			return result, nil
 		}
 	}
 
-	return result
+	return result, nil
 }
 
 // Recover 从 panic 中恢复并记录错误日志。

@@ -546,8 +546,8 @@ func (s *SharkKafka) BatchConsumer(topic string, group string, cfg *BatchConfig,
 	go func() {
 		for {
 			// 批量排空 channel，最多取 batchSize 条
-			messages := sharkfunc.DrainChannelN(running, channel, batchSize, *cfg.Timeout)
-			if len(messages) == 0 && running.Err() != nil {
+			messages, err := sharkfunc.DrainChannelN(running, channel, batchSize, *cfg.Timeout)
+			if err != nil {
 				// channel 为空且上下文已取消 → 正常退出
 				return
 			}

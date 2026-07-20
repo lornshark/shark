@@ -50,17 +50,18 @@ type Config struct {
 //   - publish chan: 容量 100000 的缓冲通道，异步发布消息
 //   - closeLock: 保护优雅关闭期间 publish channel 的关闭
 type Client struct {
-	config    *Config
-	wg        *sync.WaitGroup
-	ctx       context.Context
-	logger    *zap.Logger
-	conn      *amqp.Connection // 当前连接
-	connLock  sync.Mutex       // 连接读写锁
-	channel   *amqp.Channel    // 当前 channel
-	publish   chan publishMsg  // 发布消息缓冲通道（容量 100000）
-	name      string           // 服务名称（用于消费者标识）
-	id        string           // 实例 ID（用于消费者标识）
-	closeLock sync.Mutex       // 关闭锁
+	config        *Config
+	wg            *sync.WaitGroup
+	ctx           context.Context
+	logger        *zap.Logger
+	conn          *amqp.Connection // 当前连接
+	connLock      sync.Mutex       // 连接读写锁
+	channel       *amqp.Channel    // 当前 channel
+	publish       chan publishMsg  // 发布消息缓冲通道（容量 100000）
+	name          string           // 服务名称（用于消费者标识）
+	id            string           // 实例 ID（用于消费者标识）
+	closeLock     sync.Mutex       // 关闭锁
+	connectionCtx context.Context  // 连接上下文（用于取消连接）
 }
 
 // publishMsg 是内部发布消息的数据结构。
@@ -207,6 +208,8 @@ func (c *Client) connect(index int, wg *sync.WaitGroup) {
 			time.Sleep(time.Second)
 			continue
 		}
+		connectionCtx, cancel := context.WithCancel(context.Background())
+		c.connectionCtx = connectionCtx
 		// 更新连接和 channel
 		c.set_conn(conn)
 		c.set_channel(channel)
@@ -220,11 +223,13 @@ func (c *Client) connect(index int, wg *sync.WaitGroup) {
 		conn.NotifyClose(connErr)
 		select {
 		case <-c.ctx.Done():
+			cancel()
 			conn.Close()
 			return
 		case e := <-connErr:
 			c.logger.Warn("Rabbitmq连接已关闭", zap.String("host", c.config.Host[index]), zap.Error(e))
 			// 清空连接和 channel，触发重连
+			cancel()
 			c.set_channel(nil)
 			c.set_conn(nil)
 			count++
@@ -289,8 +294,13 @@ func (c *Client) publish_msg() {
 func (c *Client) Consume(exchange string, queue string, key string, handler func(amqp.Delivery)) {
 	go func() {
 		for {
+
 			if c.ctx.Err() != nil {
 				return
+			}
+			if c.connectionCtx != nil && c.connectionCtx.Err() != nil {
+				time.Sleep(1 * time.Second)
+				continue
 			}
 			conn := c.get_conn()
 			if conn == nil {
@@ -342,6 +352,8 @@ func (c *Client) self_handle(msg amqp.Delivery, handler func(amqp.Delivery)) {
 func (c *Client) handle_channel(channel <-chan amqp.Delivery, handler func(amqp.Delivery)) {
 	for {
 		select {
+		case <-c.connectionCtx.Done():
+			return
 		case <-c.ctx.Done():
 			return
 		case msg, ok := <-channel:
@@ -402,6 +414,10 @@ func (c *Client) BatchConsume(exchange string, queue string, key string, cfg *Ba
 			if c.ctx.Err() != nil {
 				return
 			}
+			if c.connectionCtx != nil && c.connectionCtx.Err() != nil {
+				time.Sleep(1 * time.Second)
+				continue
+			}
 			conn := c.get_conn()
 			if conn == nil {
 				time.Sleep(time.Second)
@@ -426,6 +442,10 @@ func (c *Client) BatchConsume(exchange string, queue string, key string, cfg *Ba
 					select {
 					case drainChannel <- msg:
 					case <-c.ctx.Done():
+						close(drainChannel)
+						return
+					case <-c.connectionCtx.Done():
+						close(drainChannel)
 						return
 					}
 				}
@@ -452,8 +472,8 @@ func (c *Client) BatchConsume(exchange string, queue string, key string, cfg *Ba
 			}
 			for {
 				// 批量收集消息
-				messages := sharkfunc.DrainChannelN(ctx, drainChannel, batchSize, *cfg.Timeout)
-				if len(messages) == 0 && ctx.Err() != nil {
+				messages, err := sharkfunc.DrainChannelN(ctx, drainChannel, batchSize, *cfg.Timeout)
+				if err != nil {
 					cancel()
 					break
 				}
