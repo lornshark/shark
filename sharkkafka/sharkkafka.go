@@ -271,7 +271,7 @@ type WriterConfig struct {
 	BatchBytes   *int                // 单批最大字节数 2MB
 	BatchTimeout *time.Duration      // 批次超时时间   1s
 	RequiredAcks *kafka.RequiredAcks // 消息确认级别   RequiredAcks
-	Async        *bool               // 是否异步写入   false
+	Async        *bool               // 是否异步写入   true
 }
 
 func (s *SharkKafka) Writer(topic string, cfg *WriterConfig) (*kafka.Writer, error) {
@@ -287,7 +287,7 @@ func (s *SharkKafka) Writer(topic string, cfg *WriterConfig) (*kafka.Writer, err
 			BatchBytes:   sharkfunc.Pointer(1024 * 1024 * 2),  // 单批最多 2MB
 			BatchTimeout: sharkfunc.Pointer(time.Second),      // 批次超时 1s
 			RequiredAcks: sharkfunc.Pointer(kafka.RequireOne), // 仅等待 Leader 确认
-			Async:        sharkfunc.Pointer(false),            // 同步写入，保证消息不丢失
+			Async:        sharkfunc.Pointer(true),             // 同步写入，保证消息不丢失
 		}
 	}
 	if cfg.BatchSize == nil {
@@ -303,7 +303,7 @@ func (s *SharkKafka) Writer(topic string, cfg *WriterConfig) (*kafka.Writer, err
 		cfg.RequiredAcks = sharkfunc.Pointer(kafka.RequireOne)
 	}
 	if cfg.Async == nil {
-		cfg.Async = sharkfunc.Pointer(false)
+		cfg.Async = sharkfunc.Pointer(true)
 	}
 	// 未缓存：创建新的 Writer
 	writerConfig := kafka.WriterConfig{
