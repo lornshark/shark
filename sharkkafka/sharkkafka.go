@@ -559,9 +559,9 @@ func (s *SharkKafka) BatchConsumer(topic string, group string, cfg *BatchConfig,
 				runningCalcel()
 				return
 			}
-			// 提交 offset（最多重试 5 次）
+			// 提交 offset 一直重试,直到成功
 			var commitError error
-			for i := 0; i < 5; i++ {
+			for i := 0; i < 50000000; i++ {
 				commitError = sharkfunc.WithTimeout(running, time.Second, func(ctx context.Context) error {
 					return reader.CommitMessages(ctx, messages...)
 				})
@@ -569,6 +569,11 @@ func (s *SharkKafka) BatchConsumer(topic string, group string, cfg *BatchConfig,
 					break // 提交成功
 				}
 				s.logger.Warn("提交 Kafka 消息 offset 失败", zap.String("topic", reader.Config().Topic), zap.Error(commitError), zap.Int("retry", i+1))
+				time.Sleep(time.Second) // 等待 1 秒后重试
+				// 再次检查上下文是否已取消
+				if running.Err() != nil {
+					return
+				}
 			}
 			if commitError != nil {
 				runningCalcel()
