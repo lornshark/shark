@@ -502,10 +502,11 @@ func (a *App) Hunt(components ...AppComponent) {
 }
 
 // banner 打印服务启动日志。
-//
 // 注释掉的 ASCII Art 是一个 "SHARK HUNTING" 的横幅，
 // 保留以便后续需要时启用。
 func (a *App) banner() {
+	hostName, _ := os.Hostname()
+	a.Logger.Info("shark running", zap.String("name", a.Name), zap.String("id", a.Id), zap.String("env", a.Env), zap.String("host", hostName))
 	a.Logger.Info("****************server start****************")
 }
 
