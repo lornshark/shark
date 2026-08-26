@@ -217,12 +217,77 @@ func (p *TableScan[T]) Desc(columns ...string) *TableScan[T] {
 	return p
 }
 
+// getFieldValueFromStruct 递归搜索结构体（包含嵌入结构体）中匹配指定标签的字段值。
+//
+// 参数：
+//   - v:    结构体的 reflect.Value
+//   - t:    结构体的 reflect.Type
+//   - name: 要匹配的字段名
+//   - tagName: 标签类型（"gorm" 或 "json"），决定按哪种标签匹配
+//
+// 返回值：匹配成功时返回字段值，否则返回 nil。
+func getFieldValueFromStruct(v reflect.Value, t reflect.Type, name string, tagName string) any {
+	for i := 0; i < t.NumField(); i++ {
+		sf := t.Field(i)
+		fv := v.Field(i)
+
+		// 嵌入（匿名）结构体：递归搜索其内部字段
+		if sf.Anonymous {
+			// 处理嵌入指针类型（如 *gdbmodel.XGameOrder）
+			if fv.Kind() == reflect.Ptr {
+				if fv.IsNil() {
+					continue
+				}
+				fv = fv.Elem()
+			}
+			if fv.Kind() == reflect.Struct {
+				if result := getFieldValueFromStruct(fv, fv.Type(), name, tagName); result != nil {
+					return result
+				}
+			}
+			continue
+		}
+
+		// 按指定标签匹配
+		switch tagName {
+		case "gorm":
+			gormTag := sf.Tag.Get("gorm")
+			if gormTag == "" {
+				continue
+			}
+			tags := strings.Split(gormTag, ";")
+			for _, tag := range tags {
+				if strings.HasPrefix(tag, "column:") {
+					column := strings.TrimPrefix(tag, "column:")
+					if column == name {
+						if fv.IsValid() && fv.CanInterface() {
+							return fv.Interface()
+						}
+					}
+				}
+			}
+		case "json":
+			jsonTag := sf.Tag.Get("json")
+			if jsonTag == "" {
+				continue
+			}
+			jsonName := strings.Split(jsonTag, ",")[0] // 取逗号前部分（忽略 omitempty 等选项）
+			if jsonName == name {
+				if fv.IsValid() && fv.CanInterface() {
+					return fv.Interface()
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // getFieldValue 从模型对象中获取指定字段的值。
 //
 // 字段名匹配优先级（从高到低）：
-//  1. struct 字段名（直接通过 FieldByName 匹配）
-//  2. gorm column tag（遍历所有字段的 gorm:"column:xxx" 标签）
-//  3. json tag（遍历所有字段的 json:"xxx" 标签，取逗号前部分）
+//  1. struct 字段名（直接通过 FieldByName 匹配，支持嵌入字段）
+//  2. gorm column tag（遍历所有字段的 gorm:"column:xxx" 标签，递归搜索嵌入结构体）
+//  3. json tag（遍历所有字段的 json:"xxx" 标签，递归搜索嵌入结构体）
 //
 // 若三层匹配均未找到，返回 nil。
 //
@@ -241,44 +306,18 @@ func getFieldValue[T any](obj *T, name string) any {
 		return nil
 	}
 	t := v.Type()
-	// 第一层：直接按 struct 字段名查找
+	// 第一层：直接按 struct 字段名查找（FieldByName 已支持递归搜索嵌入字段）
 	field := v.FieldByName(name)
 	if field.IsValid() && field.CanInterface() {
 		return field.Interface()
 	}
-	// 第二层：按 gorm column tag 查找
-	for i := 0; i < t.NumField(); i++ {
-		sf := t.Field(i)
-		gormTag := sf.Tag.Get("gorm")
-		if gormTag != "" {
-			tags := strings.Split(gormTag, ";")
-			for _, tag := range tags {
-				if strings.HasPrefix(tag, "column:") {
-					column := strings.TrimPrefix(tag, "column:")
-					if column == name {
-						f := v.Field(i)
-						if f.IsValid() && f.CanInterface() {
-							return f.Interface()
-						}
-					}
-				}
-			}
-		}
+	// 第二层：按 gorm column tag 查找（递归搜索嵌入结构体）
+	if result := getFieldValueFromStruct(v, t, name, "gorm"); result != nil {
+		return result
 	}
-	// 第三层：按 json tag 查找
-	for i := 0; i < t.NumField(); i++ {
-		sf := t.Field(i)
-		jsonTag := sf.Tag.Get("json")
-		if jsonTag == "" {
-			continue
-		}
-		jsonName := strings.Split(jsonTag, ",")[0] // 取逗号前部分（忽略 omitempty 等选项）
-		if jsonName == name {
-			f := v.Field(i)
-			if f.IsValid() && f.CanInterface() {
-				return f.Interface()
-			}
-		}
+	// 第三层：按 json tag 查找（递归搜索嵌入结构体）
+	if result := getFieldValueFromStruct(v, t, name, "json"); result != nil {
+		return result
 	}
 	return nil
 }
