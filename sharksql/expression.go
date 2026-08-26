@@ -358,3 +358,47 @@ func Column(table string, column string) string {
 func ColumnAs(table string, column string, as string) string {
 	return fmt.Sprintf("%v.%v as %v", table, column, as)
 }
+
+func BitOr(column string, value any) (string, any) {
+	return column + " | ?", value
+}
+
+func BitAnd(column string, value any) (string, any) {
+	return column + " & ?", value
+}
+
+func BitXor(column string, value any) (string, any) {
+	return column + " ^ ?", value
+}
+
+func BitNot(column string) string {
+	return "~" + column
+}
+
+func BitShiftLeft(column string, value any) (string, any) {
+	return column + " << ?", value
+}
+
+func BitShiftRight(column string, value any) (string, any) {
+	return column + " >> ?", value
+}
+
+func BitOrCol(column string, otherColumn string) string {
+	return column + " | " + otherColumn
+}
+
+func BitAndCol(column string, otherColumn string) string {
+	return column + " & " + otherColumn
+}
+
+func BitXorCol(column string, otherColumn string) string {
+	return column + " ^ " + otherColumn
+}
+
+func BitShiftLeftCol(column string, otherColumn string) string {
+	return column + " << " + otherColumn
+}
+
+func BitShiftRightCol(column string, otherColumn string) string {
+	return column + " >> " + otherColumn
+}
