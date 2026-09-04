@@ -130,7 +130,7 @@ sharksql.NewSql().EqCol("u.id","o.user_id")  // 字段对字段
 scan := sharkdb.NewTableScan[User]().PageSize(500).Asc("create_time")
 scan.Next(db.Where(...), lastCursor)   // 下一页
 scan.Prev(db.Where(...), firstCursor)  // 上一页
-scan.Export(ctx, db, "标题", headers, rowFn) // Excel 导出
+scan.ExportExcel(ctx, db, "标题", headers, rowFn) // Excel 导出
 ```
 
 ### Redis

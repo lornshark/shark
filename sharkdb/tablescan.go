@@ -2,6 +2,7 @@ package sharkdb
 
 import (
 	"context"
+	"encoding/csv"
 	"fmt"
 	"os"
 	"path"
@@ -506,7 +507,7 @@ func (p *TableScan[T]) Prev(db *gorm.DB, first *T) ([]T, error) {
 	return list, nil
 }
 
-// Export 将全表数据导出为 Excel 文件（.xlsx）。
+// ExportExcel 将全表数据导出为 Excel 文件（.xlsx）。
 //
 // 内部使用 TableScan.Next 逐页读取，通过 excelize 的 StreamWriter 流式写入，
 // 内存占用始终只有一页数据量，适合百万级数据导出。
@@ -535,7 +536,7 @@ func (p *TableScan[T]) Prev(db *gorm.DB, first *T) ([]T, error) {
 //	    PageSize(500).
 //	    Asc("create_time", "id")
 //
-//	filePath, err := scan.Export(
+//	filePath, err := scan.ExportExcel(
 //	    context.Background(),
 //	    db.Where("status = 1"),
 //	    "活跃用户列表",
@@ -556,7 +557,7 @@ func (p *TableScan[T]) Prev(db *gorm.DB, first *T) ([]T, error) {
 //
 //	// 可选：移动文件到目标目录
 //	os.Rename(filePath, "/desired/path/users.xlsx")
-func (p *TableScan[T]) Export(ctx context.Context, db *gorm.DB, name string, header []any, cb func(T) []any) (string, error) {
+func (p *TableScan[T]) ExportExcel(ctx context.Context, db *gorm.DB, name string, header []any, cb func(T) []any) (string, error) {
 	// 创建 Excel 文件
 	excelFile := excelize.NewFile()
 	defer excelFile.Close()
@@ -615,5 +616,94 @@ func (p *TableScan[T]) Export(ctx context.Context, db *gorm.DB, name string, hea
 	if err := excelFile.SaveAs(path.Join(os.TempDir(), fileName)); err != nil {
 		return "", err
 	}
+	return fileName, nil
+}
+
+// ExportCsv 将全表数据导出为 CSV 文件（.csv）。
+//
+// 内部使用 TableScan.Next 逐页读取，通过 encoding/csv 流式写入，
+// 内存占用始终只有一页数据量，适合百万级数据导出。
+//
+// 参数：
+//   - ctx:    上下文，用于取消导出操作
+//   - db:     已应用 WHERE 条件的 GORM 查询
+//   - name:   导出文件名前缀（自动追加时间戳，如 "用户列表_20250618120000.csv"）
+//   - header: CSV 表头（如 []any{"ID", "姓名", "手机号", "创建时间"}）
+//   - cb:     行数据转换函数，入参为模型对象，出参为每列的值切片（顺序与 header 一致）
+//
+// 返回值：
+//   - string: 生成的文件路径（位于系统临时目录，即 os.TempDir()）
+//   - error:  导出失败时返回错误
+//
+// 使用示例：
+//
+//	filePath, err := scan.ExportCsv(
+//	    context.Background(),
+//	    db.Where("status = 1"),
+//	    "活跃用户列表",
+//	    []any{"ID", "姓名", "手机号", "创建时间"},
+//	    func(u User) []any {
+//	        return []any{
+//	            u.Id,
+//	            u.Name,
+//	            u.Phone,
+//	            u.CreateTime.Format("2006-01-02 15:04:05"),
+//	        }
+//	    },
+//	)
+func (p *TableScan[T]) ExportCsv(ctx context.Context, db *gorm.DB, name string, header []any, cb func(T) []any) (string, error) {
+	fileName := fmt.Sprintf("%v_%v.csv", name, time.Now().Format("20060102150405"))
+	file, err := os.Create(path.Join(os.TempDir(), fileName))
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	csvWriter := csv.NewWriter(file)
+
+	// 写入表头
+	headerRow := make([]string, 0, len(header))
+	for _, h := range header {
+		headerRow = append(headerRow, fmt.Sprint(h))
+	}
+	if err := csvWriter.Write(headerRow); err != nil {
+		return "", err
+	}
+
+	// 逐页扫描并流式写入
+	var last *T
+	for {
+		// 上下文取消时提前退出
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		values, err := p.Next(db, last)
+		if err != nil {
+			return "", err
+		}
+		if len(values) == 0 {
+			break // 扫描完毕
+		}
+		// 逐行转换并写入
+		for i := 0; i < len(values); i++ {
+			row := cb(values[i])
+			rowStr := make([]string, 0, len(row))
+			for _, v := range row {
+				rowStr = append(rowStr, fmt.Sprint(v))
+			}
+			if err := csvWriter.Write(rowStr); err != nil {
+				return "", err
+			}
+		}
+		// 游标指向本页最后一条
+		last = &values[len(values)-1]
+	}
+
+	// 刷新流式写入器，确保数据全部写入
+	csvWriter.Flush()
+	if err := csvWriter.Error(); err != nil {
+		return "", err
+	}
+
 	return fileName, nil
 }

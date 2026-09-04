@@ -3,6 +3,7 @@ package sharkelastic
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -697,7 +698,7 @@ func (s *SharkElastic) DeleteBySql(ctx context.Context, sql string) error {
 	return nil
 }
 
-// ExportBySql 根据 SQL WHERE 条件使用 search_after 游标分批查询数据并导出为 Excel(.xlsx)。
+// ExportExcelBySql 根据 SQL WHERE 条件使用 search_after 游标分批查询数据并导出为 Excel(.xlsx)。
 // 内部 search_after 深分页→excelize StreamWriter 流式写入，内存始终只有一批数据量，适合百万级数据。
 //
 // 核心要求：SQL 必须包含 order by 子句，且排序字段组合必须保证唯一性。
@@ -720,7 +721,7 @@ func (s *SharkElastic) DeleteBySql(ctx context.Context, sql string) error {
 //
 // 使用示例：
 //
-//	filePath, err := client.ExportBySql(
+//	filePath, err := client.ExportExcelBySql(
 //	    ctx,
 //	    "select user_id,name,age from users where status = 1 order by user_id asc",
 //	    "用户列表",
@@ -733,7 +734,7 @@ func (s *SharkElastic) DeleteBySql(ctx context.Context, sql string) error {
 //	        }
 //	    },
 //	)
-func (s *SharkElastic) ExportBySql(ctx context.Context, sql string, name string, header []any, cb func([]byte) []any) (string, error) {
+func (s *SharkElastic) ExportExcelBySql(ctx context.Context, sql string, name string, header []any, cb func([]byte) []any) (string, error) {
 	if strings.TrimSpace(sql) == "" {
 		return "", fmt.Errorf("SQL 不能为空")
 	}
@@ -754,7 +755,7 @@ func (s *SharkElastic) ExportBySql(ctx context.Context, sql string, name string,
 	// search_after 必须有排序字段，sort 值作为游标
 	sortSpec, ok := pq.Body["sort"]
 	if !ok {
-		return "", fmt.Errorf("ExportBySql 使用 search_after 游标，SQL 必须包含 order by 且排序字段必须唯一，例如: select user_id,name from users where status = 1 order by user_id asc")
+		return "", fmt.Errorf("ExportExcelBySql 使用 search_after 游标，SQL 必须包含 order by 且排序字段必须唯一，例如: select user_id,name from users where status = 1 order by user_id asc")
 	}
 
 	excelFile := excelize.NewFile()
@@ -838,6 +839,153 @@ func (s *SharkElastic) ExportBySql(ctx context.Context, sql string, name string,
 
 	fileName := fmt.Sprintf("%v_%v.xlsx", name, time.Now().Format("20060102150405"))
 	if err := excelFile.SaveAs(path.Join(os.TempDir(), fileName)); err != nil {
+		return "", err
+	}
+
+	return fileName, nil
+}
+
+// ExportCsvBySql 根据 SQL WHERE 条件使用 search_after 游标分批查询数据并导出为 CSV(.csv)。
+// 内部 search_after 深分页→encoding/csv 流式写入，内存始终只有一批数据量，适合百万级数据。
+//
+// 核心要求：SQL 必须包含 order by 子句，且排序字段组合必须保证唯一性。
+// search_after 依赖排序值作为游标，非唯一排序会导致数据遗漏或重复。
+// 因此如果排序字段不唯一（如只按 status 排序），可能导致导出数据不全。
+//
+// SQL 格式：select field,... from indexname where conditions order by field1 [asc|desc], ...
+// where 语法与 Find/SqlRaw 完全一致，order by 必须存在。
+//
+// 参数：
+//   - ctx:    上下文，用于取消导出操作
+//   - sql:    SQL 风格查询字符串，必须包含 from 子句和 order by 子句
+//   - name:   导出文件名前缀（自动追加时间戳），文件保存在 os.TempDir()
+//   - header: CSV 表头
+//   - cb:     行数据转换函数，入参为每条文档的 JSON 原始字节，出参为每列的值切片
+//
+// 返回值：
+//   - string: 生成的文件路径
+//   - error:  导出失败时返回错误
+//
+// 使用示例：
+//
+//	filePath, err := client.ExportCsvBySql(
+//	    ctx,
+//	    "select user_id,name,age from users where status = 1 order by user_id asc",
+//	    "用户列表",
+//	    []any{"用户ID", "姓名", "年龄"},
+//	    func(docBytes []byte) []any {
+//	        return []any{
+//	            gjson.GetBytes(docBytes, "user_id").String(),
+//	            gjson.GetBytes(docBytes, "name").String(),
+//	            gjson.GetBytes(docBytes, "age").Int(),
+//	        }
+//	    },
+//	)
+func (s *SharkElastic) ExportCsvBySql(ctx context.Context, sql string, name string, header []any, cb func([]byte) []any) (string, error) {
+	if strings.TrimSpace(sql) == "" {
+		return "", fmt.Errorf("SQL 不能为空")
+	}
+
+	pq, err := sharkeswhere.Build(sql)
+	if err != nil {
+		return "", fmt.Errorf("解析 SQL 失败: %w", err)
+	}
+	if pq.Index == "" {
+		return "", fmt.Errorf("SQL 缺少 from 子句指定索引")
+	}
+
+	queryClause, ok := pq.Body["query"]
+	if !ok {
+		queryClause = map[string]any{"match_all": map[string]any{}}
+	}
+
+	// search_after 必须有排序字段，sort 值作为游标
+	sortSpec, ok := pq.Body["sort"]
+	if !ok {
+		return "", fmt.Errorf("ExportCsvBySql 使用 search_after 游标，SQL 必须包含 order by 且排序字段必须唯一，例如: select user_id,name from users where status = 1 order by user_id asc")
+	}
+
+	fileName := fmt.Sprintf("%v_%v.csv", name, time.Now().Format("20060102150405"))
+	file, err := os.Create(path.Join(os.TempDir(), fileName))
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	csvWriter := csv.NewWriter(file)
+
+	// 写入表头
+	headerRow := make([]string, 0, len(header))
+	for _, h := range header {
+		headerRow = append(headerRow, fmt.Sprint(h))
+	}
+	if err := csvWriter.Write(headerRow); err != nil {
+		return "", err
+	}
+
+	var searchAfter []any
+	for {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+
+		searchBody := map[string]any{
+			"query": queryClause,
+			"size":  batchSize,
+			"sort":  sortSpec,
+		}
+		if len(searchAfter) > 0 {
+			searchBody["search_after"] = searchAfter
+		}
+
+		respBytes, err := s.Search(ctx, pq.Index, searchBody)
+		if err != nil {
+			return "", fmt.Errorf("查询待导出文档失败: %w", err)
+		}
+
+		hits := gjson.GetBytes(respBytes, "hits.hits")
+		if !hits.Exists() || !hits.IsArray() || len(hits.Array()) == 0 {
+			break
+		}
+
+		hitArr := hits.Array()
+
+		// 提取 _source 数组（使用 encoding/json.RawMessage 保留原始 JSON 对象）
+		sourcesJSON := gjson.GetBytes(respBytes, "hits.hits.#._source")
+		var docs []json.RawMessage
+		if err := json.Unmarshal([]byte(sourcesJSON.Raw), &docs); err != nil {
+			return "", fmt.Errorf("解析文档数据失败: %w", err)
+		}
+
+		for _, doc := range docs {
+			row := cb(doc)
+			rowStr := make([]string, 0, len(row))
+			for _, v := range row {
+				rowStr = append(rowStr, fmt.Sprint(v))
+			}
+			if err := csvWriter.Write(rowStr); err != nil {
+				return "", err
+			}
+		}
+
+		if len(hitArr) < batchSize {
+			break
+		}
+
+		// 取最后一条的 sort 值作为下一次 search_after
+		searchAfter = nil
+		lastSort := hitArr[len(hitArr)-1].Get("sort")
+		if lastSort.Exists() && lastSort.IsArray() {
+			for _, v := range lastSort.Array() {
+				searchAfter = append(searchAfter, v.Value())
+			}
+		} else {
+			break
+		}
+	}
+
+	csvWriter.Flush()
+	if err := csvWriter.Error(); err != nil {
 		return "", err
 	}
 

@@ -283,7 +283,7 @@ func TestElasticAggExpr_Integration(t *testing.T) {
 	})
 }
 
-func TestElasticExportBySql(t *testing.T) {
+func TestElasticExportExcelBySql(t *testing.T) {
 	cfg := loadElasticConfig(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -317,7 +317,7 @@ func TestElasticExportBySql(t *testing.T) {
 	es.Client.Indices.Refresh(es.Client.Indices.Refresh.WithIndex(indexName))
 
 	// 导出 status = 1 的数据（search_after 必须有 order by）
-	filePath, err := es.ExportBySql(ctx,
+	filePath, err := es.ExportExcelBySql(ctx,
 		"select user_id,name,age from "+indexName+" where status = 1 order by user_id asc",
 		"test_export",
 		[]any{"用户ID", "姓名", "年龄"},
@@ -330,11 +330,11 @@ func TestElasticExportBySql(t *testing.T) {
 		},
 	)
 	if err != nil {
-		t.Fatalf("ExportBySql 失败: %v", err)
+		t.Fatalf("ExportExcelBySql 失败: %v", err)
 	}
 	t.Logf("导出文件路径: %s", filePath)
 
-	// 验证文件存在（ExportBySql 返回文件名，文件在 os.TempDir() 下）
+	// 验证文件存在（ExportExcelBySql 返回文件名，文件在 os.TempDir() 下）
 	fullPath := path.Join(os.TempDir(), filePath)
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
 		t.Fatalf("导出文件不存在: %s", fullPath)
@@ -345,5 +345,5 @@ func TestElasticExportBySql(t *testing.T) {
 	os.Remove(fullPath)
 	// 清理索引
 	es.Client.Indices.Delete([]string{indexName})
-	t.Log("ExportBySql 测试通过")
+	t.Log("ExportExcelBySql 测试通过")
 }

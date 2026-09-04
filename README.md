@@ -226,7 +226,7 @@ for {
 prev, _ := scan.Prev(db.Where("deleted = 0"), &results[0])
 
 // 流式 Excel 导出（百万级数据，内存仅一页）
-filePath, _ := scan.Export(ctx, db.Where("status = 1"),
+filePath, _ := scan.ExportExcel(ctx, db.Where("status = 1"),
     "用户列表", []any{"ID", "姓名", "创建时间"},
     func(u User) []any { return []any{u.Id, u.Name, u.CreateTime} },
 )
