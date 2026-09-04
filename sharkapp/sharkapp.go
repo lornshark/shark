@@ -46,6 +46,7 @@ import (
 	"github.com/lornshark/shark/sharkrabbitmq"
 	"github.com/lornshark/shark/sharkredis"
 	"github.com/lornshark/shark/sharkrisingwave"
+	"github.com/lornshark/shark/sharkws"
 
 	"github.com/lornshark/shark/sharklog"
 	"github.com/lornshark/shark/sharktimer"
@@ -121,6 +122,8 @@ type App struct {
 	RisingWave *gorm.DB
 	// GinEngine Gin HTTP 引擎（路由注册入口）
 	GinEngine *gin.Engine
+	// SharkWS WebSocket 服务组件
+	Ws *sharkws.SharkWS
 
 	// --- 内部组件（不对外暴露） ---
 	// cancelFunc 取消 Context，触发优雅关闭
@@ -392,6 +395,7 @@ func New(options *Options) (*App, error) {
 	// ---- HTTP 服务初始化（基于 Gin） ----
 	if options.http > 0 {
 		app.GinEngine = sharkhttp.New(app.Context, app.Env, app.Logger, options.http)
+		app.Ws = sharkws.NewSharkWS(app.GinEngine)
 		app.Logger.Info("开启http服务", zap.Int("port", options.http))
 		// 开发环境提示 Swagger 文档地址
 		if options.env == "dev" {
