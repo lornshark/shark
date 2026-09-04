@@ -414,3 +414,7 @@ func CastAs(column string, alias string) string {
 func DateFormat(format string, column string) string {
 	return fmt.Sprintf("DATE_FORMAT(%v, '%v')", column, format)
 }
+
+func Negative(column string) string {
+	return "-" + column
+}
