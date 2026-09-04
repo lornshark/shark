@@ -402,3 +402,7 @@ func BitShiftLeftCol(column string, otherColumn string) string {
 func BitShiftRightCol(column string, otherColumn string) string {
 	return column + " >> " + otherColumn
 }
+
+func TableAs(alias string, v any) (string, any) {
+	return fmt.Sprintf("(%v) AS %v", v, alias), v
+}
