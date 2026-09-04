@@ -406,3 +406,11 @@ func BitShiftRightCol(column string, otherColumn string) string {
 func TableAs(alias string, v any) (string, any) {
 	return fmt.Sprintf("(%v) AS %v", v, alias), v
 }
+
+func CastAs(column string, alias string) string {
+	return fmt.Sprintf("CAST((%v) AS %v)", column, alias)
+}
+
+func DateFormat(column string, format string) string {
+	return fmt.Sprintf("DATE_FORMAT(%v, '%v')", column, format)
+}
