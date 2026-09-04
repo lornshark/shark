@@ -197,27 +197,26 @@ func IfNullAs(column string, value any, alias string) string {
 
 // ========== CASE 表达式 ==========
 
-// Case 构建参数化 CASE 表达式：CASE column WHEN ? THEN ? ... END。
+// Case 构建 CASE 表达式：CASE column WHEN ... THEN ... [ELSE ...] END。
 //
 // 第一个参数为列名，后续参数为值/结果对。
 // 参数个数规则：
 //   - 除列名外为偶数个参数：无 ELSE 分支，全部为 WHEN/THEN 对
 //   - 除列名外为奇数个参数：最后一个参数为 ELSE 值，其余为 WHEN/THEN 对
 //
-// 所有值通过 ? 占位符参数化，返回 (sql, args) 元组。
+// 注意：所有值通过 fmt.Sprint 直接拼接到 SQL 字符串中（非参数化），
+// 字符串值需自行携带引号。
 //
 // 示例：
 //
 //	// 有 ELSE
-//	sql, args := sharksql.Case("status", 0, "待支付", 1, "已支付", 2, "已取消", "未知")
-//	// sql:  CASE status WHEN ? THEN ? WHEN ? THEN ? WHEN ? THEN ? ELSE ? END
-//	// args: [0, 待支付, 1, 已支付, 2, 已取消, 未知]
-//	db.Select(sql, args...).Find(&results)
+//	s := sharksql.Case("status", 0, "'待支付'", 1, "'已支付'", 2, "'已取消'", "'未知'")
+//	// CASE status WHEN 0 THEN '待支付' WHEN 1 THEN '已支付' WHEN 2 THEN '已取消' ELSE '未知' END
+//	db.Select(s).Find(&results)
 //
 //	// 无 ELSE
-//	sql, args := sharksql.Case("score", 90, "优秀", 80, "良好", 60, "及格")
-//	// sql:  CASE score WHEN ? THEN ? WHEN ? THEN ? WHEN ? THEN ? END
-//	// args: [90, 优秀, 80, 良好, 60, 及格]
+//	s := sharksql.Case("score", 90, "'优秀'", 80, "'良好'", 60, "'及格'")
+//	// CASE score WHEN 90 THEN '优秀' WHEN 80 THEN '良好' WHEN 60 THEN '及格' END
 func Case(column string, pairs ...any) string {
 	var sb strings.Builder
 	sb.WriteString("CASE ")
@@ -359,62 +358,168 @@ func ColumnAs(table string, column string, as string) string {
 	return fmt.Sprintf("%v.%v as %v", table, column, as)
 }
 
+// ========== 位运算（列与值，WHERE/UPDATE 子句）==========
+
+// BitOr 构建列与值的按位或表达式，返回 (sql 片段, 参数值)。
+// sql 片段中使用 ? 占位符，参数值需作为 gorm 参数传入。
+//
+// 示例：
+//
+//	// WHERE permission | ?
+//	sql, value := sharksql.BitOr("permission", 4)
+//	db.Where(sql, value).Find(&results)
 func BitOr(column string, value any) (string, any) {
 	return column + " | ?", value
 }
 
+// BitAnd 构建列与值的按位与表达式，返回 (sql 片段, 参数值)。
+// 常用于检查某个二进制标志位是否被置位。
+//
+// 示例：
+//
+//	// WHERE status & ?
+//	sql, value := sharksql.BitAnd("status", 2)
+//	db.Where(sql, value).Find(&results)
 func BitAnd(column string, value any) (string, any) {
 	return column + " & ?", value
 }
 
+// BitXor 构建列与值的按位异或表达式，返回 (sql 片段, 参数值)。
+//
+// 示例：
+//
+//	// WHERE flags ^ ?
+//	sql, value := sharksql.BitXor("flags", 8)
+//	db.Where(sql, value).Find(&results)
 func BitXor(column string, value any) (string, any) {
 	return column + " ^ ?", value
 }
 
+// BitNot 构建列按位取反表达式：~column。
+//
+// 示例：
+//
+//	// SELECT ~flags FROM users
+//	db.Select(sharksql.BitNot("flags")).Find(&results)
 func BitNot(column string) string {
 	return "~" + column
 }
 
+// BitShiftLeft 构建列按位左移表达式，返回 (sql 片段, 参数值)。
+//
+// 示例：
+//
+//	// WHERE flags << ?
+//	sql, value := sharksql.BitShiftLeft("flags", 2)
+//	db.Where(sql, value).Find(&results)
 func BitShiftLeft(column string, value any) (string, any) {
 	return column + " << ?", value
 }
 
+// BitShiftRight 构建列按位右移表达式，返回 (sql 片段, 参数值)。
+//
+// 示例：
+//
+//	// WHERE flags >> ?
+//	sql, value := sharksql.BitShiftRight("flags", 1)
+//	db.Where(sql, value).Find(&results)
 func BitShiftRight(column string, value any) (string, any) {
 	return column + " >> ?", value
 }
 
+// ========== 字段对字段位运算（SELECT/UPDATE 子句）==========
+
+// BitOrCol 构建字段对字段按位或表达式：column | otherColumn。
+//
+// 示例：
+//
+//	// UPDATE users SET flags = flags | new_flags
+//	db.Update("flags", gorm.Expr(sharksql.BitOrCol("flags", "new_flags")))
 func BitOrCol(column string, otherColumn string) string {
 	return column + " | " + otherColumn
 }
 
+// BitAndCol 构建字段对字段按位与表达式：column & otherColumn。
+//
+// 示例：
+//
+//	// UPDATE users SET flags = flags & mask
+//	db.Update("flags", gorm.Expr(sharksql.BitAndCol("flags", "mask")))
 func BitAndCol(column string, otherColumn string) string {
 	return column + " & " + otherColumn
 }
 
+// BitXorCol 构建字段对字段按位异或表达式：column ^ otherColumn。
+//
+// 示例：
+//
+//	// UPDATE users SET flags = flags ^ mask
+//	db.Update("flags", gorm.Expr(sharksql.BitXorCol("flags", "mask")))
 func BitXorCol(column string, otherColumn string) string {
 	return column + " ^ " + otherColumn
 }
 
+// BitShiftLeftCol 构建字段对字段按位左移表达式：column << otherColumn。
+//
+// 示例：
+//
+//	// UPDATE users SET flags = flags << shift
+//	db.Update("flags", gorm.Expr(sharksql.BitShiftLeftCol("flags", "shift")))
 func BitShiftLeftCol(column string, otherColumn string) string {
 	return column + " << " + otherColumn
 }
 
+// BitShiftRightCol 构建字段对字段按位右移表达式：column >> otherColumn。
+//
+// 示例：
+//
+//	// UPDATE users SET flags = flags >> shift
+//	db.Update("flags", gorm.Expr(sharksql.BitShiftRightCol("flags", "shift")))
 func BitShiftRightCol(column string, otherColumn string) string {
 	return column + " >> " + otherColumn
 }
 
-func TableAs(alias string, v any) (string, any) {
-	return fmt.Sprintf("(%v) AS %v", v, alias), v
-}
+// ========== 类型转换 / 子查询 / 日期格式化 / 其他辅助 ==========
 
+// CastAs 构建类型转换表达式：CAST((column) AS type)。
+// 第二个参数为 SQL 目标类型（如 CHAR、SIGNED、DECIMAL(10,2) 等），非列别名。
+//
+// 示例：
+//
+//	// SELECT CAST((id) AS CHAR) FROM users
+//	db.Select(sharksql.CastAs("id", "CHAR")).Find(&results)
 func CastAs(column string, alias string) string {
 	return fmt.Sprintf("CAST((%v) AS %v)", column, alias)
 }
 
+// DateFormat 构建 MySQL 日期格式化表达式：DATE_FORMAT(column, 'format')。
+//
+// 示例：
+//
+//	// SELECT DATE_FORMAT(created_at, '%Y-%m-%d') FROM users
+//	db.Select(sharksql.DateFormat("%Y-%m-%d", "created_at")).Find(&results)
 func DateFormat(format string, column string) string {
 	return fmt.Sprintf("DATE_FORMAT(%v, '%v')", column, format)
 }
 
+// Negative 构建取负表达式：-column。
+//
+// 示例：
+//
+//	// SELECT -amount FROM accounts
+//	db.Select(sharksql.Negative("amount")).Find(&results)
 func Negative(column string) string {
 	return "-" + column
+}
+
+// TableAs 构建带别名的子查询/表表达式：(v) AS alias。
+// 返回 (sql 片段, 原 v)，v 通常为子查询 SQL。
+//
+// 示例：
+//
+//	sql, sub := sharksql.TableAs("t", "SELECT * FROM users WHERE age > 18")
+//	// sql: (SELECT * FROM users WHERE age > 18) AS t
+//	// sub: SELECT * FROM users WHERE age > 18
+func TableAs(alias string, v any) (string, any) {
+	return fmt.Sprintf("(%v) AS %v", v, alias), v
 }
