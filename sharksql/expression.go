@@ -515,5 +515,5 @@ func Negative(column string) string {
 }
 
 func GormAs(alias string, v *gorm.DB) (string, *gorm.DB) {
-	return fmt.Sprintf("(%v) AS %v", v, alias), v
+	return fmt.Sprintf("(?) AS %v", alias), v
 }
