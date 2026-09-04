@@ -3,6 +3,8 @@ package sharksql
 import (
 	"fmt"
 	"strings"
+
+	"gorm.io/gorm"
 )
 
 // ========== 字段对字段算术运算符（SELECT/UPDATE 子句）==========
@@ -512,14 +514,6 @@ func Negative(column string) string {
 	return "-" + column
 }
 
-// TableAs 构建带别名的子查询/表表达式：(v) AS alias。
-// 返回 (sql 片段, 原 v)，v 通常为子查询 SQL。
-//
-// 示例：
-//
-//	sql, sub := sharksql.TableAs("t", "SELECT * FROM users WHERE age > 18")
-//	// sql: (SELECT * FROM users WHERE age > 18) AS t
-//	// sub: SELECT * FROM users WHERE age > 18
-func TableAs(alias string, v any) (string, any) {
+func GormAs(alias string, v *gorm.DB) (string, *gorm.DB) {
 	return fmt.Sprintf("(%v) AS %v", v, alias), v
 }
