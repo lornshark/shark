@@ -59,7 +59,7 @@ func NewSharkWS(router *gin.Engine) *SharkWS {
 		}
 	}(ws)
 	// 启动接收协程
-	func(s *SharkWS) {
+	go func(s *SharkWS) {
 		for msg := range s.recv_channel {
 			switch msg[0].(int) {
 			case 1: // connect
