@@ -411,6 +411,6 @@ func CastAs(column string, alias string) string {
 	return fmt.Sprintf("CAST((%v) AS %v)", column, alias)
 }
 
-func DateFormat(column string, format string) string {
+func DateFormat(format string, column string) string {
 	return fmt.Sprintf("DATE_FORMAT(%v, '%v')", column, format)
 }
