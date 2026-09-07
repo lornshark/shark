@@ -62,7 +62,9 @@ func PageQuery[T any](db *gorm.DB, page int, pageSize int) ([]T, int64, *sharker
 	}
 	// 使用独立 Session 计数，避免被 Select 子句影响
 	var total int64
-	err := db.Session(&gorm.Session{}).Clauses(clause.OrderBy{}).Count(&total).Error
+	countdb := db.Session(&gorm.Session{})
+	delete(countdb.Statement.Clauses, clause.OrderBy{}.Name())
+	err := countdb.Count(&total).Error
 	if err != nil {
 		return nil, 0, sharkerror.New(1, err.Error())
 	}
