@@ -3,6 +3,7 @@ package sharksql
 import (
 	"github.com/lornshark/shark/sharkerror"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // PageQuery 执行泛型分页查询，返回指定页的数据和总记录数。
@@ -61,7 +62,7 @@ func PageQuery[T any](db *gorm.DB, page int, pageSize int) ([]T, int64, *sharker
 	}
 	// 使用独立 Session 计数，避免被 Select 子句影响
 	var total int64
-	err := db.Session(&gorm.Session{}).Count(&total).Error
+	err := db.Session(&gorm.Session{}).Clauses(clause.OrderBy{}).Count(&total).Error
 	if err != nil {
 		return nil, 0, sharkerror.New(1, err.Error())
 	}
