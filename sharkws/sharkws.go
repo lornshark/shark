@@ -63,24 +63,24 @@ func NewSharkWS(router *gin.Engine) *SharkWS {
 		for msg := range s.recv_channel {
 			switch msg[0].(int) {
 			case 1: // connect
-				idx := msg[1].(int)
-				path := msg[2].(string)
+				path := msg[1].(string)
+				idx := msg[2].(int)
 				v, ok := s.connect_callback.Load(path)
 				if ok {
 					callback := v.(func(conn int))
 					callback(idx)
 				}
 			case 2: // close
-				idx := msg[1].(int)
-				path := msg[2].(string)
+				path := msg[1].(string)
+				idx := msg[2].(int)
 				v, ok := s.close_callback.Load(path)
 				if ok {
 					callback := v.(func(conn int))
 					callback(idx)
 				}
 			case 3: // message
-				idx := msg[1].(int)
-				path := msg[2].(string)
+				path := msg[1].(string)
+				idx := msg[2].(int)
 				message := msg[3].([]byte)
 				v, ok := s.message_callback.Load(path)
 				if ok {
